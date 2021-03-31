@@ -31,6 +31,18 @@ int server_init(){
     return socket_fd;
 }
 
+/* ------ SERVER FUNCTIONS (sfunc) ------ */
+
+void sfunc_leaderboard(int argc, char *argv[]){}
+void sfunc_players(int argc, char *argv[]){}
+void sfunc_playerstats(int argc, char *argv[]){}
+void sfunc_battle(int argc, char *argv[]){}
+void sfunc_quick(int argc, char *argv[]){}
+void sfunc_chill(int argc, char *argv[]){}
+void sfunc_go(int argc, char *argv[]){}
+void sfunc_nickname(int argc, char *argv[]){}
+void sfunc_help(int argc, char *argv[]){}
+
 /* ----------- ERROR HANDLING ----------- */
 
 /* Mr. Error: A simple function to handle errors (mostly a wrapper to perror), and terminate.*/
