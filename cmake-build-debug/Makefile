@@ -143,32 +143,32 @@ CPS2008_Tetris/fast:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/CPS2008_Tetris.dir/build.make CMakeFiles/CPS2008_Tetris.dir/build
 .PHONY : CPS2008_Tetris/fast
 
-main.o: main.c.o
+server.o: server.c.o
 
-.PHONY : main.o
+.PHONY : server.o
 
 # target to build an object file
-main.c.o:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/CPS2008_Tetris.dir/build.make CMakeFiles/CPS2008_Tetris.dir/main.c.o
-.PHONY : main.c.o
+server.c.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/CPS2008_Tetris.dir/build.make CMakeFiles/CPS2008_Tetris.dir/server.c.o
+.PHONY : server.c.o
 
-main.i: main.c.i
+server.i: server.c.i
 
-.PHONY : main.i
+.PHONY : server.i
 
 # target to preprocess a source file
-main.c.i:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/CPS2008_Tetris.dir/build.make CMakeFiles/CPS2008_Tetris.dir/main.c.i
-.PHONY : main.c.i
+server.c.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/CPS2008_Tetris.dir/build.make CMakeFiles/CPS2008_Tetris.dir/server.c.i
+.PHONY : server.c.i
 
-main.s: main.c.s
+server.s: server.c.s
 
-.PHONY : main.s
+.PHONY : server.s
 
 # target to generate assembly for a file
-main.c.s:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/CPS2008_Tetris.dir/build.make CMakeFiles/CPS2008_Tetris.dir/main.c.s
-.PHONY : main.c.s
+server.c.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/CPS2008_Tetris.dir/build.make CMakeFiles/CPS2008_Tetris.dir/server.c.s
+.PHONY : server.c.s
 
 # Help Target
 help:
@@ -179,9 +179,9 @@ help:
 	@echo "... edit_cache"
 	@echo "... rebuild_cache"
 	@echo "... CPS2008_Tetris"
-	@echo "... main.o"
-	@echo "... main.i"
-	@echo "... main.s"
+	@echo "... server.o"
+	@echo "... server.i"
+	@echo "... server.s"
 .PHONY : help
 
 

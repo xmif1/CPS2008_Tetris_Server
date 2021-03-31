@@ -3,4 +3,4 @@ project(CPS2008_Tetris C)
 
 set(CMAKE_C_STANDARD 99)
 
-add_executable(CPS2008_Tetris server.c)
+add_executable(CPS2008_Tetris server.c server.h)

@@ -77,27 +77,27 @@ include CMakeFiles/CPS2008_Tetris.dir/progress.make
 # Include the compile flags for this target's objects.
 include CMakeFiles/CPS2008_Tetris.dir/flags.make
 
-CMakeFiles/CPS2008_Tetris.dir/main.c.o: CMakeFiles/CPS2008_Tetris.dir/flags.make
-CMakeFiles/CPS2008_Tetris.dir/main.c.o: ../main.c
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir=/Users/xandrumifsud/Documents/Dev/CPS2008_Tetris/cmake-build-debug/CMakeFiles --progress-num=$(CMAKE_PROGRESS_1) "Building C object CMakeFiles/CPS2008_Tetris.dir/main.c.o"
-	/Library/Developer/CommandLineTools/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -o CMakeFiles/CPS2008_Tetris.dir/main.c.o   -c /Users/xandrumifsud/Documents/Dev/CPS2008_Tetris/main.c
+CMakeFiles/CPS2008_Tetris.dir/server.c.o: CMakeFiles/CPS2008_Tetris.dir/flags.make
+CMakeFiles/CPS2008_Tetris.dir/server.c.o: ../server.c
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --progress-dir=/Users/xandrumifsud/Documents/Dev/CPS2008_Tetris/cmake-build-debug/CMakeFiles --progress-num=$(CMAKE_PROGRESS_1) "Building C object CMakeFiles/CPS2008_Tetris.dir/server.c.o"
+	/Library/Developer/CommandLineTools/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -o CMakeFiles/CPS2008_Tetris.dir/server.c.o   -c /Users/xandrumifsud/Documents/Dev/CPS2008_Tetris/server.c
 
-CMakeFiles/CPS2008_Tetris.dir/main.c.i: cmake_force
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green "Preprocessing C source to CMakeFiles/CPS2008_Tetris.dir/main.c.i"
-	/Library/Developer/CommandLineTools/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -E /Users/xandrumifsud/Documents/Dev/CPS2008_Tetris/main.c > CMakeFiles/CPS2008_Tetris.dir/main.c.i
+CMakeFiles/CPS2008_Tetris.dir/server.c.i: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green "Preprocessing C source to CMakeFiles/CPS2008_Tetris.dir/server.c.i"
+	/Library/Developer/CommandLineTools/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -E /Users/xandrumifsud/Documents/Dev/CPS2008_Tetris/server.c > CMakeFiles/CPS2008_Tetris.dir/server.c.i
 
-CMakeFiles/CPS2008_Tetris.dir/main.c.s: cmake_force
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green "Compiling C source to assembly CMakeFiles/CPS2008_Tetris.dir/main.c.s"
-	/Library/Developer/CommandLineTools/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -S /Users/xandrumifsud/Documents/Dev/CPS2008_Tetris/main.c -o CMakeFiles/CPS2008_Tetris.dir/main.c.s
+CMakeFiles/CPS2008_Tetris.dir/server.c.s: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green "Compiling C source to assembly CMakeFiles/CPS2008_Tetris.dir/server.c.s"
+	/Library/Developer/CommandLineTools/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -S /Users/xandrumifsud/Documents/Dev/CPS2008_Tetris/server.c -o CMakeFiles/CPS2008_Tetris.dir/server.c.s
 
 # Object files for target CPS2008_Tetris
 CPS2008_Tetris_OBJECTS = \
-"CMakeFiles/CPS2008_Tetris.dir/main.c.o"
+"CMakeFiles/CPS2008_Tetris.dir/server.c.o"
 
 # External object files for target CPS2008_Tetris
 CPS2008_Tetris_EXTERNAL_OBJECTS =
 
-CPS2008_Tetris: CMakeFiles/CPS2008_Tetris.dir/main.c.o
+CPS2008_Tetris: CMakeFiles/CPS2008_Tetris.dir/server.c.o
 CPS2008_Tetris: CMakeFiles/CPS2008_Tetris.dir/build.make
 CPS2008_Tetris: CMakeFiles/CPS2008_Tetris.dir/link.txt
 	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --green --bold --progress-dir=/Users/xandrumifsud/Documents/Dev/CPS2008_Tetris/cmake-build-debug/CMakeFiles --progress-num=$(CMAKE_PROGRESS_2) "Linking C executable CPS2008_Tetris"

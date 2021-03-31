@@ -1,5 +1,5 @@
 file(REMOVE_RECURSE
-  "CMakeFiles/CPS2008_Tetris.dir/main.c.o"
+  "CMakeFiles/CPS2008_Tetris.dir/server.c.o"
   "CPS2008_Tetris"
   "CPS2008_Tetris.pdb"
 )
