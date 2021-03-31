@@ -2,22 +2,18 @@
 
 int main(){
     int socket_fd = server_init();
-    int client_fd; struct sockaddr_in clientaddrIn;
+    int client_fd;
+    struct sockaddr_in clientaddrIn;
+    pthread_t service_threads[MAX_CLIENTS];
 
-    // Main loop listening for client connections, ready to accept them is sufficient resources available.
+    // Main loop listening for client connections, ready to accept them as sufficient resources available.
     while(1){
         socklen_t sizeof_clientaddrIn = sizeof(clientaddrIn);
         if((client_fd = accept(socket_fd,(struct sockaddr*) &clientaddrIn, &sizeof_clientaddrIn)) < 0){
             mrerror("Error on attempt to accept client connection");
         }
 
-        if(n_clients < MAX_CLIENTS - 1){ // if further resource constraints exist, add them here
-            add_client(client_fd, clientaddrIn);
-        }
-        else{
-            printf("Maximum number of clients reached. Cannot open further connections...\n");
-            close(client_fd);
-        }
+        add_client(client_fd, clientaddrIn, service_threads);
     }
 
     // How to gracefully close connections when 'server shuts down'?
@@ -50,10 +46,53 @@ int server_init(){
     return socket_fd;
 }
 
-void add_client(int client_fd, struct sockaddr_in clientaddrIn){
-    clients[n_clients] = (client){.client_fd = client_fd, .clientaddrIn = clientaddrIn, .nickname=gen_nickname()};
-    n_clients++;
+void add_client(int client_fd, struct sockaddr_in clientaddrIn, pthread_t* service_threads){
+    if(n_clients < MAX_CLIENTS - 1){ // if further resource constraints exist, add them here
+        pthread_mutex_lock(&clients_mutex); pthread_mutex_lock(&n_clients_mutex);
+
+        clients[n_clients] = (client){.client_fd = client_fd, .clientaddrIn = clientaddrIn, .nickname=gen_nickname()};
+
+        if(pthread_create(service_threads + n_clients, NULL, service_client, (void*) (clients + n_clients)) != 0){
+            mrerror("Error while creating thread to service newly connected client");
+        }
+
+        n_clients++;
+
+        pthread_mutex_unlock(&clients_mutex); pthread_mutex_unlock(&n_clients_mutex);
+    }else{
+        char* msg = "Maximum number of clients acheived: unable to connect at the moment.";
+        if(send(client_fd, msg, strlen(msg), 0) < 0){
+            mrerror("Error encountered while communicating with new client");
+        }
+
+        close(client_fd);
+    }
 }
+
+void* service_client(void* arg){
+    client* client_ptr;
+    client_ptr = (client*) arg;
+
+    char* recv_msg[BUFFER_SIZE];
+    int recv_msg_len;
+    while((recv_msg_len = recv(client_ptr->client_fd, recv_msg, BUFFER_SIZE, 0)) > 0){
+        printf("%s", client_ptr->nickname);
+    }
+}
+
+/* ------ SERVER FUNCTIONS (sfunc) ------ */
+
+void sfunc_leaderboard(int argc, char *argv[]){}
+void sfunc_players(int argc, char *argv[]){}
+void sfunc_playerstats(int argc, char *argv[]){}
+void sfunc_battle(int argc, char *argv[]){}
+void sfunc_quick(int argc, char *argv[]){}
+void sfunc_chill(int argc, char *argv[]){}
+void sfunc_go(int argc, char *argv[]){}
+void sfunc_nickname(int argc, char *argv[]){}
+void sfunc_help(int argc, char *argv[]){}
+
+/* --------- UTILITY FUNCTIONS --------- */
 
 char* gen_nickname(){
     char* keywords1[6] = {"Big", "Little", "Cool", "Lame", "Happy", "Sad"};
@@ -84,18 +123,6 @@ int nickname_uniqueQ(char* nickname){
 
     return 0;
 }
-
-/* ------ SERVER FUNCTIONS (sfunc) ------ */
-
-void sfunc_leaderboard(int argc, char *argv[]){}
-void sfunc_players(int argc, char *argv[]){}
-void sfunc_playerstats(int argc, char *argv[]){}
-void sfunc_battle(int argc, char *argv[]){}
-void sfunc_quick(int argc, char *argv[]){}
-void sfunc_chill(int argc, char *argv[]){}
-void sfunc_go(int argc, char *argv[]){}
-void sfunc_nickname(int argc, char *argv[]){}
-void sfunc_help(int argc, char *argv[]){}
 
 /* ----------- ERROR HANDLING ----------- */
 

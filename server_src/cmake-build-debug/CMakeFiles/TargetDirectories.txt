@@ -1,0 +1,3 @@
+/Users/xandrumifsud/Documents/Dev/CPS2008_Tetris/server_src/cmake-build-debug/CMakeFiles/rebuild_cache.dir
+/Users/xandrumifsud/Documents/Dev/CPS2008_Tetris/server_src/cmake-build-debug/CMakeFiles/edit_cache.dir
+/Users/xandrumifsud/Documents/Dev/CPS2008_Tetris/server_src/cmake-build-debug/CMakeFiles/CPS2008_Tetris.dir

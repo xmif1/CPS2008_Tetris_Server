@@ -4,7 +4,7 @@ set(CMAKE_DEPENDS_LANGUAGES
   )
 # The set of files for implicit dependencies of each language:
 set(CMAKE_DEPENDS_CHECK_C
-  "/Users/xandrumifsud/Documents/Dev/CPS2008_Tetris/server.c" "/Users/xandrumifsud/Documents/Dev/CPS2008_Tetris/cmake-build-debug/CMakeFiles/CPS2008_Tetris.dir/server.c.o"
+  "/Users/xandrumifsud/Documents/Dev/CPS2008_Tetris/server_src/server.c" "/Users/xandrumifsud/Documents/Dev/CPS2008_Tetris/server_src/cmake-build-debug/CMakeFiles/CPS2008_Tetris.dir/server.c.o"
   )
 set(CMAKE_C_COMPILER_ID "AppleClang")
 

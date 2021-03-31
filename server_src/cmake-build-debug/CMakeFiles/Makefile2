@@ -64,10 +64,10 @@ RM = /Applications/CLion.app/Contents/bin/cmake/mac/bin/cmake -E rm -f
 EQUALS = =
 
 # The top-level source directory on which CMake was run.
-CMAKE_SOURCE_DIR = /Users/xandrumifsud/Documents/Dev/CPS2008_Tetris
+CMAKE_SOURCE_DIR = /Users/xandrumifsud/Documents/Dev/CPS2008_Tetris/server_src
 
 # The top-level build directory on which CMake was run.
-CMAKE_BINARY_DIR = /Users/xandrumifsud/Documents/Dev/CPS2008_Tetris/cmake-build-debug
+CMAKE_BINARY_DIR = /Users/xandrumifsud/Documents/Dev/CPS2008_Tetris/server_src/cmake-build-debug
 
 #=============================================================================
 # Directory level rules for the build root directory
@@ -94,14 +94,14 @@ clean: CMakeFiles/CPS2008_Tetris.dir/clean
 CMakeFiles/CPS2008_Tetris.dir/all:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/CPS2008_Tetris.dir/build.make CMakeFiles/CPS2008_Tetris.dir/depend
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/CPS2008_Tetris.dir/build.make CMakeFiles/CPS2008_Tetris.dir/build
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --progress-dir=/Users/xandrumifsud/Documents/Dev/CPS2008_Tetris/cmake-build-debug/CMakeFiles --progress-num=1,2 "Built target CPS2008_Tetris"
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --progress-dir=/Users/xandrumifsud/Documents/Dev/CPS2008_Tetris/server_src/cmake-build-debug/CMakeFiles --progress-num=1,2 "Built target CPS2008_Tetris"
 .PHONY : CMakeFiles/CPS2008_Tetris.dir/all
 
 # Build rule for subdir invocation for target.
 CMakeFiles/CPS2008_Tetris.dir/rule: cmake_check_build_system
-	$(CMAKE_COMMAND) -E cmake_progress_start /Users/xandrumifsud/Documents/Dev/CPS2008_Tetris/cmake-build-debug/CMakeFiles 2
+	$(CMAKE_COMMAND) -E cmake_progress_start /Users/xandrumifsud/Documents/Dev/CPS2008_Tetris/server_src/cmake-build-debug/CMakeFiles 2
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 CMakeFiles/CPS2008_Tetris.dir/all
-	$(CMAKE_COMMAND) -E cmake_progress_start /Users/xandrumifsud/Documents/Dev/CPS2008_Tetris/cmake-build-debug/CMakeFiles 0
+	$(CMAKE_COMMAND) -E cmake_progress_start /Users/xandrumifsud/Documents/Dev/CPS2008_Tetris/server_src/cmake-build-debug/CMakeFiles 0
 .PHONY : CMakeFiles/CPS2008_Tetris.dir/rule
 
 # Convenience name for target.
