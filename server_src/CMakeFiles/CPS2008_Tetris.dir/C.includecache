@@ -1,0 +1,30 @@
+#IncludeRegexLine: ^[ 	]*[#%][ 	]*(include|import)[ 	]*[<"]([^">]+)([">])
+
+#IncludeRegexScan: ^.*$
+
+#IncludeRegexComplain: ^$
+
+#IncludeRegexTransform: 
+
+/home/xandru/Documents/CPS2008_Tetris_Server/server_src/server.c
+server.h
+/home/xandru/Documents/CPS2008_Tetris_Server/server_src/server.h
+
+/home/xandru/Documents/CPS2008_Tetris_Server/server_src/server.h
+sys/socket.h
+-
+netinet/in.h
+-
+pthread.h
+-
+unistd.h
+-
+string.h
+-
+stdlib.h
+-
+stdio.h
+-
+math.h
+-
+

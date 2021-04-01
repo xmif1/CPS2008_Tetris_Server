@@ -2,14 +2,20 @@
 
 int main(){
     int socket_fd = server_init();
-    int client_fd;
-    struct sockaddr_in clientaddrIn;
     pthread_t service_threads[MAX_CLIENTS];
+
+    // Initialise clients array to NULLs
+    for(int i = 0; i < MAX_CLIENTS; i++){
+        clients[i] = NULL;
+    }
 
     // Main loop listening for client connections, ready to accept them as sufficient resources become available.
     while(1){
-        socklen_t sizeof_clientaddrIn = sizeof(clientaddrIn);
-        if((client_fd = accept(socket_fd,(struct sockaddr*) &clientaddrIn, &sizeof_clientaddrIn)) < 0){
+        struct sockaddr_in clientaddrIn;
+        socklen_t sizeof_clientaddrIn = sizeof(struct sockaddr_in);
+
+        int client_fd = accept(socket_fd, (struct sockaddr*) &clientaddrIn, &sizeof_clientaddrIn);
+        if(client_fd < 0){
             mrerror("Error on attempt to accept client connection");
         }
 
@@ -26,7 +32,8 @@ int server_init(){
            "Initialising server...\n");
 
     // Create socket
-    if((socket_fd = socket(SDOMAIN, TYPE, 0)) < 0){
+    socket_fd = socket(SDOMAIN, TYPE, 0);
+    if(socket_fd < 0){
         mrerror("Socket initialisation failed");
     }
 
@@ -51,10 +58,12 @@ int server_init(){
 void add_client(int client_fd, struct sockaddr_in clientaddrIn, pthread_t* service_threads){
     if(n_clients < MAX_CLIENTS - 1){ // if further resource constraints exist, add them here
         pthread_mutex_lock(&clients_mutex); pthread_mutex_lock(&n_clients_mutex);
+        clients[n_clients] = malloc(sizeof(client));
+        clients[n_clients]->client_fd = client_fd;
+        clients[n_clients]->clientaddrIn = clientaddrIn;
+        clients[n_clients]->nickname = gen_nickname();
 
-        clients[n_clients] = &(client){.client_fd = client_fd, .clientaddrIn = clientaddrIn, .nickname=gen_nickname()};
-
-        if(pthread_create(service_threads + n_clients, NULL, service_client, (void*) (clients + n_clients)) != 0){
+        if(pthread_create(service_threads + n_clients, NULL, service_client, (void*) clients[n_clients]) != 0){
             mrerror("Error while creating thread to service newly connected client");
         }
 
@@ -72,11 +81,11 @@ void add_client(int client_fd, struct sockaddr_in clientaddrIn, pthread_t* servi
 }
 
 void* service_client(void* arg){
-    client* client_ptr;
-    client_ptr = (client*) arg;
+    int client_fd = ((client*) arg)->client_fd;
+    char* nickname = ((client*) arg)->nickname;
 
     char recv_msg[BUFFER_SIZE];
-    while(recv(client_ptr->client_fd, recv_msg, BUFFER_SIZE, 0) > 0){
+    while(recv(client_fd, recv_msg, BUFFER_SIZE, 0) > 0){
         if(recv_msg[0] == '!'){
             char *token = strtok(recv_msg, " ");
             char **token_list = malloc(0);
@@ -98,17 +107,17 @@ void* service_client(void* arg){
 
             for(int i = 0; i < N_SFUNCS; i++){
                 if(strcmp(token_list[0], sfunc_dict[i]) == 0){
-                    (*sfunc)(n_tokens, token_list, client_ptr->nickname);
+                    (*sfunc)(n_tokens, token_list, nickname);
                     msg_flag = 0;
                     break;
                 }
             }
 
             if(msg_flag){
-                sfunc_msg(1, (char*[]){recv_msg}, client_ptr->nickname);
+                sfunc_msg(1, (char*[]){recv_msg}, nickname);
             }
         }else{
-            sfunc_msg(1, (char*[]){recv_msg}, client_ptr->nickname);
+            sfunc_msg(1, (char*[]){recv_msg}, nickname);
         }
     }
 }
@@ -129,7 +138,8 @@ void sfunc_msg(int argc, char* argv[], char* client_id){
     pthread_mutex_lock(&clients_mutex);
     for(int i = 0; i < MAX_CLIENTS; i++){
         if(clients[i] != NULL){
-            char* msg = clients[i]->nickname;
+            char* msg = malloc(sizeof(clients[i]->nickname)+sizeof(argv[0])+4);
+            strcpy(msg, clients[i]->nickname);
             strcat(msg, ">\t");
             strcat(msg, argv[0]);
 
@@ -154,7 +164,8 @@ char* gen_nickname(){
         char str_k[(int) floor(log10(k))+2];
         sprintf(str_k, "%d", k);
 
-        nickname = keywords1[i];
+        nickname = malloc(sizeof(keywords1[i])+sizeof(keywords2[j])+sizeof(str_k)+1);
+        strcpy(nickname, keywords1[i]);
         strcat(nickname, keywords2[j]);
         strcat(nickname, str_k);
 
@@ -167,9 +178,15 @@ char* gen_nickname(){
 // Returns 1 if the nickname is not unique, 0 otherwise.
 int nickname_uniqueQ(char* nickname){
     for(int i = 0; i < MAX_CLIENTS; i++){
-        if(strcmp(nickname, clients[i]->nickname)){
-            return 1;
-        }
+       if(!clients[i]){
+           continue;
+       }
+       else if(!(clients[i]->nickname)){
+           continue;
+       }
+       else if(strcmp(nickname, clients[i]->nickname) == 0){
+           return 1;
+       }
     }
 
     return 0;
@@ -206,4 +223,3 @@ void reset(){
     printf("-----");
     printf("\033[0m\n");
 }
-

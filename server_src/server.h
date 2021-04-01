@@ -15,7 +15,7 @@
 #define CPS2008_TETRIS_SERVER_H
 
 // NETWORKING CONFIG
-#define PORT 6666
+#define PORT 8080
 #define SDOMAIN AF_INET // or AF_INET6, correspondingly using netinet/in.h
 #define TYPE SOCK_STREAM
 #define MAX_CLIENTS 20
