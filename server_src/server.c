@@ -30,6 +30,8 @@ int server_init(){
         mrerror("Socket initialisation failed");
     }
 
+    struct sockaddr_in sockaddrIn = {.sin_family = SDOMAIN, .sin_addr.s_addr = INADDR_ANY, .sin_port = htons(8080)};
+
     // Then (in darkness) bind it...
     if(bind(socket_fd, (struct sockaddr*) &sockaddrIn, sizeof(sockaddrIn)) < 0){
         mrerror("Socket binding failed");

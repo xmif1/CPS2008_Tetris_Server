@@ -60,7 +60,5 @@ char* sfunc_dict[N_SFUNCS] = {"!leaderboard", "!players", "!playerstats", "!batt
 void (*sfunc[])(int argc, char *argv[], char* client_id) = {&sfunc_leaderboard, &sfunc_players, &sfunc_playerstats,
                                                             &sfunc_battle, &sfunc_quick, &sfunc_chill, &sfunc_go,
                                                             &sfunc_nickname, &sfunc_help};
-struct sockaddr_in sockaddrIn = {.sin_family = SDOMAIN, .sin_addr.s_addr = INADDR_ANY, .sin_port = htons(PORT)};
-
 
 #endif //CPS2008_TETRIS_SERVER_H
