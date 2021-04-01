@@ -1,4 +1,4 @@
-# Install script for directory: /Users/xandrumifsud/Documents/Dev/CPS2008_Tetris/server_src
+# Install script for directory: /Users/xandrumifsud/Documents/Dev/CPS2008_Tetris_Server/server_src
 
 # Set the install prefix
 if(NOT DEFINED CMAKE_INSTALL_PREFIX)
@@ -40,5 +40,5 @@ endif()
 
 string(REPLACE ";" "\n" CMAKE_INSTALL_MANIFEST_CONTENT
        "${CMAKE_INSTALL_MANIFEST_FILES}")
-file(WRITE "/Users/xandrumifsud/Documents/Dev/CPS2008_Tetris/server_src/cmake-build-debug/${CMAKE_INSTALL_MANIFEST}"
+file(WRITE "/Users/xandrumifsud/Documents/Dev/CPS2008_Tetris_Server/server_src/cmake-build-debug/${CMAKE_INSTALL_MANIFEST}"
      "${CMAKE_INSTALL_MANIFEST_CONTENT}")

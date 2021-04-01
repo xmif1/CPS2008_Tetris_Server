@@ -34,27 +34,32 @@ int nickname_uniqueQ(char* nickname);
 char* gen_nickname();
 void* service_client(void* arg);
 void add_client(int client_fd, struct sockaddr_in clientaddrIn, pthread_t* service_threads);
-void sfunc_leaderboard(int argc, char *argv[]);
-void sfunc_players(int argc, char *argv[]);
-void sfunc_playerstats(int argc, char *argv[]);
-void sfunc_battle(int argc, char *argv[]);
-void sfunc_quick(int argc, char *argv[]);
-void sfunc_chill(int argc, char *argv[]);
-void sfunc_go(int argc, char *argv[]);
-void sfunc_nickname(int argc, char *argv[]);
-void sfunc_help(int argc, char *argv[]);
+void sfunc_leaderboard(int argc, char* argv[], char* client_id);
+void sfunc_players(int argc, char* argv[], char* client_id);
+void sfunc_playerstats(int argc, char* argv[], char* client_id);
+void sfunc_battle(int argc, char* argv[], char* client_id);
+void sfunc_quick(int argc, char* argv[], char* client_id);
+void sfunc_chill(int argc, char* argv[], char* client_id);
+void sfunc_go(int argc, char* argv[], char* client_id);
+void sfunc_nickname(int argc, char* argv[], char* client_id);
+void sfunc_help(int argc, char* argv[], char* client_id);
+void sfunc_msg(int argc, char* argv[], char* client_id);
 void mrerror(char* err_msg);
+void smrerror(char* err_msg);
 void red();
+void yellow();
 void reset();
 
 // GLOBALS
-client clients[MAX_CLIENTS]; pthread_mutex_t clients_mutex = PTHREAD_MUTEX_INITIALIZER;
+client* clients[MAX_CLIENTS]; pthread_mutex_t clients_mutex = PTHREAD_MUTEX_INITIALIZER;
 int n_clients = 0; pthread_mutex_t n_clients_mutex = PTHREAD_MUTEX_INITIALIZER;
 
-char* sfunc_dict[] = {"!leaderboard", "!players", "!playerstats", "!battle", "!quick", "!chill", "!go", "!nickname",
-                      "!help"};
-void (*sfunc[])(int argc, char *argv[]) = {&sfunc_leaderboard, &sfunc_players, &sfunc_playerstats, &sfunc_battle,
-                                           &sfunc_quick, &sfunc_chill, &sfunc_go, &sfunc_nickname, &sfunc_help};
+#define N_SFUNCS 9
+char* sfunc_dict[N_SFUNCS] = {"!leaderboard", "!players", "!playerstats", "!battle", "!quick", "!chill", "!go",
+                              "!nickname", "!help"};
+void (*sfunc[])(int argc, char *argv[], char* client_id) = {&sfunc_leaderboard, &sfunc_players, &sfunc_playerstats,
+                                                            &sfunc_battle, &sfunc_quick, &sfunc_chill, &sfunc_go,
+                                                            &sfunc_nickname, &sfunc_help};
 struct sockaddr_in sockaddrIn = {.sin_family = SDOMAIN, .sin_addr.s_addr = INADDR_ANY, .sin_port = htons(PORT)};
 
 
