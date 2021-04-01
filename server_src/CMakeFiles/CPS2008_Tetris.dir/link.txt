@@ -1,0 +1,1 @@
+/usr/bin/cc CMakeFiles/CPS2008_Tetris.dir/server.c.o -o CPS2008_Tetris  -lpthread -lm 
