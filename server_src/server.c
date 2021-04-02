@@ -76,7 +76,7 @@ void add_client(int client_fd, struct sockaddr_in clientaddrIn, pthread_t* servi
         err_msg.msg_type = CHAT;
         strcpy(err_msg.msg, "Maximum number of clients acheived: unable to connect at the moment.");
 
-        if(send(client_fd, (void*) &msg, sizeof(msg), 0) < 0){
+        if(send(client_fd, (void*) &err_msg, sizeof(msg), 0) < 0){
             mrerror("Error encountered while communicating with new client");
         }
 
@@ -158,7 +158,7 @@ void sfunc_msg(int argc, char* argv[], char* client_id){
 
 /* --------- UTILITY FUNCTIONS --------- */
 
-void gen_nickname(char nickname[UNAME_LEN]){
+char nickname[UNAME_LEN] gen_nickname(){
     char* keywords1[6] = {"Big", "Little", "Cool", "Lame", "Happy", "Sad"};
     char* keywords2[5] = {"Mac", "Muppet", "Hobbit", "Wizard", "Elf"};
     int not_unique = 1;
