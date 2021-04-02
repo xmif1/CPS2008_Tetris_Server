@@ -22,6 +22,8 @@ int main(){
         add_client(client_fd, clientaddrIn, service_threads);
     }
 
+    mrerror("Exiting erroneously...");
+
     // How to gracefully close connections when 'server shuts down'?
 }
 
@@ -144,7 +146,7 @@ void sfunc_msg(int argc, char* argv[], char* client_id){
             strcat(msg, argv[0]);
 
             if(send(clients[i]->client_fd, msg, strlen(msg), 0) < 0){
-                smrerror(strcat("Unable to send message to client ", clients[i]->nickname));
+                smrerror("Unable to send message to client");
             }
         }
     }
