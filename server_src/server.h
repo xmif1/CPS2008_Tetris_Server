@@ -19,19 +19,25 @@
 #define SDOMAIN AF_INET // or AF_INET6, correspondingly using netinet/in.h
 #define TYPE SOCK_STREAM
 #define MAX_CLIENTS 20
-#define BUFFER_SIZE 1024
+#define MSG_SIZE 512
+#define UNAME_LEN 32
 
 // STRUCTS
 typedef struct{
     struct sockaddr_in clientaddrIn;
     int client_fd;
-    char* nickname;
+    char nickname[UNAME_LEN];
 }client;
+
+typedef struct{
+    MsgType msg_type;
+    char msg[MSG_SIZE];
+}msg;
 
 // FUNC DEFNS
 int server_init();
-int nickname_uniqueQ(char* nickname);
-char* gen_nickname();
+int nickname_uniqueQ(char nickname[UNAME_LEN]);
+void gen_nickname(char nickname[UNAME_LEN]);
 void* service_client(void* arg);
 void add_client(int client_fd, struct sockaddr_in clientaddrIn, pthread_t* service_threads);
 void sfunc_leaderboard(int argc, char* argv[], char* client_id);
@@ -61,5 +67,6 @@ char* sfunc_dict[N_SFUNCS] = {"!leaderboard", "!players", "!playerstats", "!batt
 void (*sfunc[])(int argc, char *argv[], char* client_id) = {&sfunc_leaderboard, &sfunc_players, &sfunc_playerstats,
                                                             &sfunc_battle, &sfunc_quick, &sfunc_chill, &sfunc_go,
                                                             &sfunc_nickname, &sfunc_help};
+enum MsgType {CHAT = 0, EMPTY = -1};
 
 #endif //CPS2008_TETRIS_SERVER_H

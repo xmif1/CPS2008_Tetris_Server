@@ -72,8 +72,11 @@ void add_client(int client_fd, struct sockaddr_in clientaddrIn, pthread_t* servi
 
         pthread_mutex_unlock(&clients_mutex);
     }else{
-        char* msg = "Maximum number of clients acheived: unable to connect at the moment.";
-        if(send(client_fd, msg, strlen(msg), 0) < 0){
+        msg err_msg;
+        err_msg.msg_type = CHAT;
+        strcpy(err_msg.msg, "Maximum number of clients acheived: unable to connect at the moment.");
+
+        if(send(client_fd, (void*) &msg, sizeof(msg), 0) < 0){
             mrerror("Error encountered while communicating with new client");
         }
 
@@ -85,11 +88,10 @@ void* service_client(void* arg){
     int client_fd = ((client*) arg)->client_fd;
     char* nickname = ((client*) arg)->nickname;
 
-    char recv_msg[BUFFER_SIZE];
-    int recv_msg_size;
-    while((recv_msg_size = recv(client_fd, recv_msg, BUFFER_SIZE, 0)) > 0){
-        if(recv_msg[0] == '!'){
-            char *token = strtok(recv_msg, " ");
+    msg recv_msg;
+    while(recv(client_fd, (msg*) &recv_msg, sizeof(msg), 0) > 0){
+        if(recv_msg.msg[0] == '!'){
+            char *token = strtok(recv_msg.msg, " ");
             char **token_list = malloc(0);
             int n_tokens = 0;
 
@@ -116,10 +118,10 @@ void* service_client(void* arg){
             }
 
             if(msg_flag){
-                sfunc_msg(1, (char*[]){recv_msg}, nickname);
+                sfunc_msg(1, (char*[]){recv_msg.msg}, nickname);
             }
         }else{
-            sfunc_msg(1, (char*[]){recv_msg}, nickname);
+            sfunc_msg(1, (char*[]){recv_msg.msg}, nickname);
         }
     }
 }
@@ -140,13 +142,13 @@ void sfunc_msg(int argc, char* argv[], char* client_id){
     pthread_mutex_lock(&clients_mutex);
     for(int i = 0; i < MAX_CLIENTS; i++){
         if(clients[i] != NULL){
-            char* msg = malloc(strlen(clients[i]->nickname)+strlen(argv[0])+4);
-            strcpy(msg, clients[i]->nickname);
-            strcat(msg, ">\t");
-            strcat(msg, argv[0]);
-	    msg[strlen(clients[i]->nickname)+strlen(argv[0])+4] = '\0';
+            msg send_msg;
+            send_msg.msg_type = CHAT;
+            strcpy(send_msg.msg, clients[i]->nickname);
+            strcat(send_msg.msg, ">\t");
+            strcat(send_msg.msg, argv[0]);
 
-            if(send(clients[i]->client_fd, msg, strlen(msg), 0) < 0){
+            if(send(clients[i]->client_fd, (void*) &send_msg, sizeof(msg), 0) < 0){
                 smrerror("Unable to send message to client");
             }
         }
@@ -156,18 +158,17 @@ void sfunc_msg(int argc, char* argv[], char* client_id){
 
 /* --------- UTILITY FUNCTIONS --------- */
 
-char* gen_nickname(){
+void gen_nickname(char nickname[UNAME_LEN]){
     char* keywords1[6] = {"Big", "Little", "Cool", "Lame", "Happy", "Sad"};
     char* keywords2[5] = {"Mac", "Muppet", "Hobbit", "Wizard", "Elf"};
     int not_unique = 1;
-    char* nickname;
+    char nickname[UNAME_LEN];
 
     while(not_unique){
         int i = rand() % 6, j = rand() % 5, k = (rand() % MAX_CLIENTS) + 1;
         char str_k[(int) floor(log10(k))+2];
         sprintf(str_k, "%d", k);
 
-        nickname = malloc(sizeof(keywords1[i])+sizeof(keywords2[j])+sizeof(str_k)+1);
         strcpy(nickname, keywords1[i]);
         strcat(nickname, keywords2[j]);
         strcat(nickname, str_k);
@@ -179,12 +180,9 @@ char* gen_nickname(){
 }
 
 // Returns 1 if the nickname is not unique, 0 otherwise.
-int nickname_uniqueQ(char* nickname){
+int nickname_uniqueQ(char nickname[UNAME_LEN]){
     for(int i = 0; i < MAX_CLIENTS; i++){
        if(!clients[i]){
-           continue;
-       }
-       else if(!(clients[i]->nickname)){
            continue;
        }
        else if(strcmp(nickname, clients[i]->nickname) == 0){
