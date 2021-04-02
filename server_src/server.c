@@ -146,7 +146,7 @@ void sfunc_msg(int argc, char* argv[], char* client_id){
         if(clients[i] != NULL){
             msg send_msg;
             send_msg.msg_type = CHAT;
-            strcpy(send_msg.msg, clients[i]->nickname);
+            strcpy(send_msg.msg, client_id);
             strcat(send_msg.msg, ">\t");
             strcat(send_msg.msg, argv[0]);
 
