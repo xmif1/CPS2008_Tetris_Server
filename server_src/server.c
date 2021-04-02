@@ -62,7 +62,7 @@ void add_client(int client_fd, struct sockaddr_in clientaddrIn, pthread_t* servi
         clients[n_clients] = malloc(sizeof(client));
         clients[n_clients]->client_fd = client_fd;
         clients[n_clients]->clientaddrIn = clientaddrIn;
-        clients[n_clients]->nickname = gen_nickname();
+        gen_nickname(clients[n_clients]->nickname);
 
         if(pthread_create(service_threads + n_clients, NULL, service_client, (void*) clients[n_clients]) != 0){
             mrerror("Error while creating thread to service newly connected client");
@@ -86,7 +86,7 @@ void add_client(int client_fd, struct sockaddr_in clientaddrIn, pthread_t* servi
 
 void* service_client(void* arg){
     int client_fd = ((client*) arg)->client_fd;
-    char* nickname = ((client*) arg)->nickname;
+    char nickname[UNAME_LEN]; strcpy(nickname, ((client*) arg)->nickname);
 
     msg recv_msg;
     while(recv(client_fd, (msg*) &recv_msg, sizeof(msg), 0) > 0){
@@ -158,11 +158,10 @@ void sfunc_msg(int argc, char* argv[], char* client_id){
 
 /* --------- UTILITY FUNCTIONS --------- */
 
-char nickname[UNAME_LEN] gen_nickname(){
+void gen_nickname(char nickname[UNAME_LEN]){
     char* keywords1[6] = {"Big", "Little", "Cool", "Lame", "Happy", "Sad"};
     char* keywords2[5] = {"Mac", "Muppet", "Hobbit", "Wizard", "Elf"};
     int not_unique = 1;
-    char nickname[UNAME_LEN];
 
     while(not_unique){
         int i = rand() % 6, j = rand() % 5, k = (rand() % MAX_CLIENTS) + 1;
@@ -175,8 +174,6 @@ char nickname[UNAME_LEN] gen_nickname(){
 
         not_unique = nickname_uniqueQ(nickname);
     }
-
-    return nickname;
 }
 
 // Returns 1 if the nickname is not unique, 0 otherwise.

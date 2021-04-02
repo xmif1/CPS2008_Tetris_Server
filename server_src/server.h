@@ -37,7 +37,7 @@ typedef struct{
 // FUNC DEFNS
 int server_init();
 int nickname_uniqueQ(char nickname[UNAME_LEN]);
-char[UNAME_LEN] gen_nickname();
+void gen_nickname(char nickname[UNAME_LEN]);
 void* service_client(void* arg);
 void add_client(int client_fd, struct sockaddr_in clientaddrIn, pthread_t* service_threads);
 void sfunc_leaderboard(int argc, char* argv[], char* client_id);
