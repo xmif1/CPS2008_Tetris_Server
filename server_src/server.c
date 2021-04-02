@@ -62,7 +62,9 @@ void add_client(int client_fd, struct sockaddr_in clientaddrIn, pthread_t* servi
         clients[n_clients] = malloc(sizeof(client));
         clients[n_clients]->client_fd = client_fd;
         clients[n_clients]->clientaddrIn = clientaddrIn;
-        gen_nickname(clients[n_clients]->nickname);
+
+        char nickname[UNAME_LEN] = {0}; gen_nickname(nickname);
+        strcpy(clients[n_clients]->nickname, nickname);
 
         if(pthread_create(service_threads + n_clients, NULL, service_client, (void*) clients[n_clients]) != 0){
             mrerror("Error while creating thread to service newly connected client");
@@ -86,7 +88,7 @@ void add_client(int client_fd, struct sockaddr_in clientaddrIn, pthread_t* servi
 
 void* service_client(void* arg){
     int client_fd = ((client*) arg)->client_fd;
-    char nickname[UNAME_LEN]; strcpy(nickname, ((client*) arg)->nickname);
+    char nickname[UNAME_LEN] = {0}; strcpy(nickname, ((client*) arg)->nickname);
 
     msg recv_msg;
     while(recv(client_fd, (msg*) &recv_msg, sizeof(msg), 0) > 0){
