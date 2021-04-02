@@ -22,8 +22,7 @@ int main(){
         add_client(client_fd, clientaddrIn, service_threads);
     }
 
-    mrerror("Exiting erroneously...");
-
+    return 0;
     // How to gracefully close connections when 'server shuts down'?
 }
 
@@ -59,7 +58,7 @@ int server_init(){
 
 void add_client(int client_fd, struct sockaddr_in clientaddrIn, pthread_t* service_threads){
     if(n_clients < MAX_CLIENTS - 1){ // if further resource constraints exist, add them here
-        pthread_mutex_lock(&clients_mutex); pthread_mutex_lock(&n_clients_mutex);
+        pthread_mutex_lock(&clients_mutex);
         clients[n_clients] = malloc(sizeof(client));
         clients[n_clients]->client_fd = client_fd;
         clients[n_clients]->clientaddrIn = clientaddrIn;
@@ -71,7 +70,7 @@ void add_client(int client_fd, struct sockaddr_in clientaddrIn, pthread_t* servi
 
         n_clients++;
 
-        pthread_mutex_unlock(&clients_mutex); pthread_mutex_unlock(&n_clients_mutex);
+        pthread_mutex_unlock(&clients_mutex);
     }else{
         char* msg = "Maximum number of clients acheived: unable to connect at the moment.";
         if(send(client_fd, msg, strlen(msg), 0) < 0){
@@ -87,7 +86,8 @@ void* service_client(void* arg){
     char* nickname = ((client*) arg)->nickname;
 
     char recv_msg[BUFFER_SIZE];
-    while(recv(client_fd, recv_msg, BUFFER_SIZE, 0) > 0){
+    int recv_msg_size;
+    while((recv_msg_size = recv(client_fd, recv_msg, BUFFER_SIZE, 0)) > 0){
         if(recv_msg[0] == '!'){
             char *token = strtok(recv_msg, " ");
             char **token_list = malloc(0);
@@ -140,10 +140,11 @@ void sfunc_msg(int argc, char* argv[], char* client_id){
     pthread_mutex_lock(&clients_mutex);
     for(int i = 0; i < MAX_CLIENTS; i++){
         if(clients[i] != NULL){
-            char* msg = malloc(sizeof(clients[i]->nickname)+sizeof(argv[0])+4);
+            char* msg = malloc(strlen(clients[i]->nickname)+strlen(argv[0])+4);
             strcpy(msg, clients[i]->nickname);
             strcat(msg, ">\t");
             strcat(msg, argv[0]);
+	    msg[strlen(clients[i]->nickname)+strlen(argv[0])+4] = '\0';
 
             if(send(clients[i]->client_fd, msg, strlen(msg), 0) < 0){
                 smrerror("Unable to send message to client");

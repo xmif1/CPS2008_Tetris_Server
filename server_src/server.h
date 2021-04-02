@@ -51,8 +51,9 @@ void yellow();
 void reset();
 
 // GLOBALS
-client* clients[MAX_CLIENTS]; pthread_mutex_t clients_mutex = PTHREAD_MUTEX_INITIALIZER;
-int n_clients = 0; pthread_mutex_t n_clients_mutex = PTHREAD_MUTEX_INITIALIZER;
+client* clients[MAX_CLIENTS];
+pthread_mutex_t clients_mutex = PTHREAD_MUTEX_INITIALIZER;
+int n_clients = 0;
 
 #define N_SFUNCS 9
 char* sfunc_dict[N_SFUNCS] = {"!leaderboard", "!players", "!playerstats", "!battle", "!quick", "!chill", "!go",
