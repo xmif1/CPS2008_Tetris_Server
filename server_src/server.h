@@ -26,6 +26,7 @@
 typedef struct{
     struct sockaddr_in clientaddrIn;
     int client_fd;
+    int client_idx;
     char nickname[UNAME_LEN];
 }client;
 
@@ -39,7 +40,7 @@ int server_init();
 int nickname_uniqueQ(char nickname[UNAME_LEN]);
 void gen_nickname(char nickname[UNAME_LEN]);
 void* service_client(void* arg);
-void add_client(int client_fd, struct sockaddr_in clientaddrIn, pthread_t* service_threads);
+void add_client(int client_fd, struct sockaddr_in clientaddrIn);
 void sfunc_leaderboard(int argc, char* argv[], char* client_id);
 void sfunc_players(int argc, char* argv[], char* client_id);
 void sfunc_playerstats(int argc, char* argv[], char* client_id);
@@ -58,8 +59,9 @@ void reset();
 
 // GLOBALS
 client* clients[MAX_CLIENTS];
-pthread_mutex_t clients_mutex = PTHREAD_MUTEX_INITIALIZER;
 int n_clients = 0;
+pthread_t service_threads[MAX_CLIENTS];
+pthread_mutex_t threadMutex = PTHREAD_MUTEX_INITIALIZER;
 
 #define N_SFUNCS 9
 char* sfunc_dict[N_SFUNCS] = {"!leaderboard", "!players", "!playerstats", "!battle", "!quick", "!chill", "!go",

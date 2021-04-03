@@ -2,7 +2,6 @@
 
 int main(){
     int socket_fd = server_init();
-    pthread_t service_threads[MAX_CLIENTS];
 
     // Initialise clients array to NULLs
     for(int i = 0; i < MAX_CLIENTS; i++){
@@ -19,7 +18,7 @@ int main(){
             mrerror("Error on attempt to accept client connection");
         }
 
-        add_client(client_fd, clientaddrIn, service_threads);
+        add_client(client_fd, clientaddrIn);
     }
 
     return 0;
@@ -56,30 +55,38 @@ int server_init(){
     return socket_fd;
 }
 
-void add_client(int client_fd, struct sockaddr_in clientaddrIn, pthread_t* service_threads){
+void add_client(int client_fd, struct sockaddr_in clientaddrIn){
     if(n_clients < MAX_CLIENTS - 1){ // if further resource constraints exist, add them here
-        pthread_mutex_lock(&clients_mutex);
-        clients[n_clients] = malloc(sizeof(client));
-        clients[n_clients]->client_fd = client_fd;
-        clients[n_clients]->clientaddrIn = clientaddrIn;
+        pthread_mutex_lock(&threadMutex);
+        int i = 0;
+        for(; i < MAX_CLIENTS; i++){
+            if(clients[i] == NULL){
+                break;
+            }
+        }
+
+        clients[i] = malloc(sizeof(client));
+        clients[i]->client_fd = client_fd;
+        clients[i]->client_idx = i;
+        clients[i]->clientaddrIn = clientaddrIn;
 
         char nickname[UNAME_LEN] = {0}; gen_nickname(nickname);
-        strcpy(clients[n_clients]->nickname, nickname);
+        strcpy(clients[i]->nickname, nickname);
 
-        if(pthread_create(service_threads + n_clients, NULL, service_client, (void*) clients[n_clients]) != 0){
+        if(pthread_create(service_threads + i, NULL, service_client, (void*) clients[i]) != 0){
             mrerror("Error while creating thread to service newly connected client");
         }
 
         n_clients++;
 
-        pthread_mutex_unlock(&clients_mutex);
+        pthread_mutex_unlock(&threadMutex);
     }else{
         msg err_msg;
         err_msg.msg_type = CHAT;
         strcpy(err_msg.msg, "Maximum number of clients acheived: unable to connect at the moment.");
 
         if(send(client_fd, (void*) &err_msg, sizeof(msg), 0) < 0){
-            mrerror("Error encountered while communicating with new client");
+            smrerror("Error encountered while communicating with new client");
         }
 
         close(client_fd);
@@ -87,11 +94,16 @@ void add_client(int client_fd, struct sockaddr_in clientaddrIn, pthread_t* servi
 }
 
 void* service_client(void* arg){
+    pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);
+
     int client_fd = ((client*) arg)->client_fd;
+    int client_idx = ((client*) arg)->client_idx;
     char nickname[UNAME_LEN] = {0}; strcpy(nickname, ((client*) arg)->nickname);
 
     msg recv_msg;
     while(recv(client_fd, (msg*) &recv_msg, sizeof(msg), 0) > 0){
+        pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, NULL);
+
         if(recv_msg.msg[0] == '!'){
             char *token = strtok(recv_msg.msg, " ");
             char **token_list = malloc(0);
@@ -105,27 +117,42 @@ void* service_client(void* arg){
                     token = strtok(NULL, " ");
                     n_tokens++;
                 }else{
-                    mrerror("Error during tokenisation of client message");
+                    smrerror("Error during tokenisation of client message");
                 }
             }
 
-            int msg_flag = 1;
+            if(strcmp(token_list[0], "!exit") == 0){
+                break;
+            }else{
+                int msg_flag = 1;
 
-            for(int i = 0; i < N_SFUNCS; i++){
-                if(strcmp(token_list[0], sfunc_dict[i]) == 0){
-                    (*sfunc)(n_tokens, token_list, nickname);
-                    msg_flag = 0;
-                    break;
+                for(int i = 0; i < N_SFUNCS; i++){
+                    if(strcmp(token_list[0], sfunc_dict[i]) == 0){
+                        (*sfunc)(n_tokens, token_list, nickname);
+                        msg_flag = 0;
+                        break;
+                    }
                 }
-            }
 
-            if(msg_flag){
-                sfunc_msg(1, (char*[]){recv_msg.msg}, nickname);
+                if(msg_flag){
+                    sfunc_msg(1, (char *[]) {recv_msg.msg}, nickname);
+                }
             }
         }else{
             sfunc_msg(1, (char*[]){recv_msg.msg}, nickname);
         }
+
+        pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);
     }
+
+    pthread_mutex_lock(&threadMutex);
+    free(clients[client_idx]);
+    clients[client_idx] = NULL;
+    n_clients--;
+    pthread_mutex_unlock(&threadMutex);
+
+    close(client_fd);
+    pthread_exit(NULL);
 }
 
 /* ------ SERVER FUNCTIONS (sfunc) ------ */
@@ -141,7 +168,7 @@ void sfunc_nickname(int argc, char* argv[], char* client_id){}
 void sfunc_help(int argc, char* argv[], char* client_id){}
 
 void sfunc_msg(int argc, char* argv[], char* client_id){
-    pthread_mutex_lock(&clients_mutex);
+    pthread_mutex_lock(&threadMutex);
     for(int i = 0; i < MAX_CLIENTS; i++){
         if(clients[i] != NULL){
             msg send_msg;
@@ -155,7 +182,7 @@ void sfunc_msg(int argc, char* argv[], char* client_id){
             }
         }
     }
-    pthread_mutex_unlock(&clients_mutex);
+    pthread_mutex_unlock(&threadMutex);
 }
 
 /* --------- UTILITY FUNCTIONS --------- */
