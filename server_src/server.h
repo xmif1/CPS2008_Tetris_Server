@@ -43,7 +43,7 @@ typedef struct{
 
 typedef struct{
     ingame_client host;
-    ingame_client opponents[7];
+    ingame_client* opponents[7];
     int game_idx;
 }game_session;
 
@@ -70,7 +70,7 @@ void sfunc_ignore(int argc, char* argv[], int client_idx);
 void sfunc_nickname(int argc, char* argv[], int client_idx);
 void sfunc_help(int argc, char* argv[], int client_idx);
 void sfunc_msg(int argc, char* argv[], int client_idx);
-void client_msg(msg send_msg, int client_idx)
+void client_msg(msg send_msg, int client_idx);
 void mrerror(char* err_msg);
 void smrerror(char* err_msg);
 void red();
@@ -83,9 +83,9 @@ game_session* games[MAX_CLIENTS];
 pthread_t service_threads[MAX_CLIENTS];
 pthread_t game_threads[MAX_CLIENTS];
 pthread_mutex_t threadMutex = PTHREAD_MUTEX_INITIALIZER;
-pthread_mutex_t* gameMutexes[MAX_CLIENTS];
+pthread_mutex_t gameMutexes[MAX_CLIENTS];
 
-#define INVITATION_EXP = 30; // seconds
+#define INVITATION_EXP 30 // seconds
 
 #define N_SFUNCS 10
 char* sfunc_dict[N_SFUNCS] = {"!leaderboard", "!players", "!playerstats", "!battle", "!quick", "!chill", "!go",

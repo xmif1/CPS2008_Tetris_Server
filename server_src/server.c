@@ -100,7 +100,7 @@ void add_client(int client_fd, struct sockaddr_in clientaddrIn){
 void remove_client(int client_idx){
     pthread_mutex_lock(&threadMutex);
     if(clients[client_idx] != NULL){
-        close(clients[client_idx].client_fd);
+        close(clients[client_idx]->client_fd);
 
         free(clients[client_idx]);
         clients[client_idx] = NULL;
@@ -167,17 +167,17 @@ void* service_game_request(void* arg){
     sleep(INVITATION_EXP);
 
     int n_players = 1;
-    pthread_mutex_lock(&(gameMutexes + game.game_idx));
+    pthread_mutex_lock(gameMutexes + game.game_idx);
     for(int i = 0; i < 8; i++){
-        if(((games[game.game_idx].opponents)[i] != NULL) && ((games[game.game_idx].opponents)[i].state == REJECTED)){
-            free((games[game.game_idx].opponents)[i]);
-            (games[game.game_idx].opponents)[i] = NULL;
+        if(((games[game.game_idx]->opponents)[i] != NULL) && ((games[game.game_idx]->opponents)[i]->state == REJECTED)){
+            free((games[game.game_idx]->opponents)[i]);
+            (games[game.game_idx]->opponents)[i] = NULL;
         }
         else{
             n_players++;
         }
     }
-    pthread_mutex_unlock(&(gameMutexes + game.game_idx));
+    pthread_mutex_unlock(gameMutexes + game.game_idx);
 
     if(n_players == 1){
         msg send_msg;
@@ -187,7 +187,7 @@ void* service_game_request(void* arg){
 
         pthread_mutex_lock(&threadMutex);
         clients[game.host.client_idx]->game_idx = -1;
-        free(games[game.game_idx])
+        free(games[game.game_idx]);
         games[game.game_idx] = NULL;
         pthread_mutex_unlock(&threadMutex);
     }
@@ -230,21 +230,21 @@ void sfunc_go(int argc, char* argv[], int client_idx) {
         strcpy(send_msg.msg, "Please specify the game id.");
         client_msg(send_msg, client_idx);
     }else{
-        int game_idx = strtol(argv[1]);
+        int game_idx = strtol(argv[1], NULL, 10);
         if(game_idx < 0 || MAX_CLIENTS <= game_idx){
             strcpy(send_msg.msg, "Invalid game id: does not exist.");
             client_msg(send_msg, client_idx);
         }else{
             int registered_in_game = 0;
 
-            pthread_mutex_lock(&(gameMutexes + game_idx));
+            pthread_mutex_lock(gameMutexes + game_idx);
             for(int i = 0; i < 8; i++){
-                if((games[game_idx]->opponents)[i].client_idx == client_idx){
+                if((games[game_idx]->opponents)[i]->client_idx == client_idx){
                     registered_in_game = 1;
                     pthread_mutex_lock(&threadMutex);
                     if((clients[client_idx] != NULL) && (clients[client_idx]->game_idx < 0)){
                         clients[client_idx]->game_idx = game_idx;
-                        (games[game_idx]->opponents)[i].state = CONNECTED;
+                        (games[game_idx]->opponents)[i]->state = CONNECTED;
                         pthread_mutex_unlock(&threadMutex);
                     }else{
                         pthread_mutex_unlock(&threadMutex);
@@ -254,7 +254,7 @@ void sfunc_go(int argc, char* argv[], int client_idx) {
                     }
                 }
             }
-            pthread_mutex_unlock(&(gameMutexes + game_idx));
+            pthread_mutex_unlock(gameMutexes + game_idx);
 
             if(!registered_in_game){
                 strcpy(send_msg.msg, "Invalid game id: you are not registered to this game session.");
@@ -272,16 +272,16 @@ void sfunc_ignore(int argc, char* argv[], int client_idx){
         strcpy(send_msg.msg, "Please specify the game id.");
         client_msg(send_msg, client_idx);
     }else{
-        int game_idx = strtol(argv[1]);
+        int game_idx = strtol(argv[1], NULL, 10);
         if(game_idx < 0 || MAX_CLIENTS <= game_idx){
             strcpy(send_msg.msg, "Invalid game id: does not exist.");
             client_msg(send_msg, client_idx);
         }else{
             int registered_in_game = -1;
 
-            pthread_mutex_lock(&(gameMutexes + game_idx));
+            pthread_mutex_lock(gameMutexes + game_idx);
             for(int i = 0; i < 8; i++){
-                if((games[game_idx]->opponents)[i].client_idx == client_idx){
+                if((games[game_idx]->opponents)[i]->client_idx == client_idx){
                     registered_in_game = i;
                 }
             }
@@ -292,18 +292,18 @@ void sfunc_ignore(int argc, char* argv[], int client_idx){
             }
             else{
                 strcpy(send_msg.msg, "Player ");
-                strcat(send_msg.msg, (games[game_idx]->opponents)[registered_in_game].nickname);
+                strcat(send_msg.msg, (games[game_idx]->opponents)[registered_in_game]->nickname);
                 strcat(send_msg.msg, " has declined to join game session ");
                 strcat(send_msg.msg, argv[1]);
                 strcat(send_msg.msg, ".");
 
                 for(int i = 0; i < 8; i++){
-                    if((games[game_idx]->opponents)[i].client_idx != client_idx){
-                        client_msg(send_msg, (games[game_idx]->opponents)[i].client_idx);
+                    if((games[game_idx]->opponents)[i]->client_idx != client_idx){
+                        client_msg(send_msg, (games[game_idx]->opponents)[i]->client_idx);
                     }
                 }
             }
-            pthread_mutex_unlock(&(gameMutexes + game_idx));
+            pthread_mutex_unlock(gameMutexes + game_idx);
         }
     }
 }
@@ -315,7 +315,7 @@ void sfunc_msg(int argc, char* argv[], int client_idx){
     pthread_mutex_lock(&threadMutex);
     if(clients[client_idx] != NULL){
         char nickname[UNAME_LEN] = {0};
-        strcpy(nickname, clients[client_idx].nickname);
+        strcpy(nickname, clients[client_idx]->nickname);
 
         for(int i = 0; i < MAX_CLIENTS; i++){
             if(clients[i] != NULL){
