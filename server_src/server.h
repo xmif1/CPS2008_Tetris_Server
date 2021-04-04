@@ -19,7 +19,7 @@
 #define SDOMAIN AF_INET // or AF_INET6, correspondingly using netinet/in.h
 #define TYPE SOCK_STREAM
 #define MAX_CLIENTS 20
-#define MSG_SIZE 512
+#define MSG_SIZE 1024
 #define UNAME_LEN 32
 
 // STRUCTS
@@ -27,8 +27,25 @@ typedef struct{
     struct sockaddr_in clientaddrIn;
     int client_fd;
     int client_idx;
+    int game_idx;
+    int n_wins;
+    int n_losses;
+    int high_score;
     char nickname[UNAME_LEN];
 }client;
+
+typedef struct{
+    int client_idx;
+    char nickname[UNAME_LEN];
+    int state;
+    int score;
+}ingame_client;
+
+typedef struct{
+    ingame_client host;
+    ingame_client opponents[7];
+    int game_idx;
+}game_session;
 
 typedef struct{
     int msg_type;
@@ -41,16 +58,19 @@ int nickname_uniqueQ(char nickname[UNAME_LEN]);
 void gen_nickname(char nickname[UNAME_LEN]);
 void* service_client(void* arg);
 void add_client(int client_fd, struct sockaddr_in clientaddrIn);
-void sfunc_leaderboard(int argc, char* argv[], char* client_id);
-void sfunc_players(int argc, char* argv[], char* client_id);
-void sfunc_playerstats(int argc, char* argv[], char* client_id);
-void sfunc_battle(int argc, char* argv[], char* client_id);
-void sfunc_quick(int argc, char* argv[], char* client_id);
-void sfunc_chill(int argc, char* argv[], char* client_id);
-void sfunc_go(int argc, char* argv[], char* client_id);
-void sfunc_nickname(int argc, char* argv[], char* client_id);
-void sfunc_help(int argc, char* argv[], char* client_id);
-void sfunc_msg(int argc, char* argv[], char* client_id);
+void remove_client(int client_idx);
+void sfunc_leaderboard(int argc, char* argv[], int client_idx);
+void sfunc_players(int argc, char* argv[], int client_idx);
+void sfunc_playerstats(int argc, char* argv[], int client_idx);
+void sfunc_battle(int argc, char* argv[], int client_idx);
+void sfunc_quick(int argc, char* argv[], int client_idx);
+void sfunc_chill(int argc, char* argv[], int client_idx);
+void sfunc_go(int argc, char* argv[], int client_idx);
+void sfunc_ignore(int argc, char* argv[], int client_idx);
+void sfunc_nickname(int argc, char* argv[], int client_idx);
+void sfunc_help(int argc, char* argv[], int client_idx);
+void sfunc_msg(int argc, char* argv[], int client_idx);
+void client_msg(msg send_msg, int client_idx)
 void mrerror(char* err_msg);
 void smrerror(char* err_msg);
 void red();
@@ -58,17 +78,22 @@ void yellow();
 void reset();
 
 // GLOBALS
-client* clients[MAX_CLIENTS];
-int n_clients = 0;
+client* clients[MAX_CLIENTS]; int n_clients = 0;
+game_session* games[MAX_CLIENTS];
 pthread_t service_threads[MAX_CLIENTS];
+pthread_t game_threads[MAX_CLIENTS];
 pthread_mutex_t threadMutex = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t* gameMutexes[MAX_CLIENTS];
 
-#define N_SFUNCS 9
+#define INVITATION_EXP = 30; // seconds
+
+#define N_SFUNCS 10
 char* sfunc_dict[N_SFUNCS] = {"!leaderboard", "!players", "!playerstats", "!battle", "!quick", "!chill", "!go",
-                              "!nickname", "!help"};
-void (*sfunc[])(int argc, char *argv[], char* client_id) = {&sfunc_leaderboard, &sfunc_players, &sfunc_playerstats,
-                                                            &sfunc_battle, &sfunc_quick, &sfunc_chill, &sfunc_go,
-                                                            &sfunc_nickname, &sfunc_help};
+                              "!ignore", "!nickname", "!help"};
+void (*sfunc[])(int argc, char *argv[], int client_idx) = {&sfunc_leaderboard, &sfunc_players, &sfunc_playerstats,
+                                                           &sfunc_battle, &sfunc_quick, &sfunc_chill, &sfunc_go,
+                                                           &sfunc_ignore, &sfunc_nickname, &sfunc_help};
 enum MsgType {CHAT = 0, EMPTY = -1};
+enum State {REJECTED = 0, CONNECTED = 1, FINISHED = 2};
 
 #endif //CPS2008_TETRIS_SERVER_H
