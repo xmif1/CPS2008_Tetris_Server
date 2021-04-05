@@ -45,6 +45,10 @@ typedef struct{
     ingame_client host;
     ingame_client* opponents[7];
     int game_idx;
+    int game_type;
+    int n_baselines;
+    int n_winlines;
+    int time;
 }game_session;
 
 typedef struct{
@@ -55,8 +59,12 @@ typedef struct{
 // FUNC DEFNS
 int server_init();
 int nickname_uniqueQ(char nickname[UNAME_LEN]);
-void gen_nickname(char nickname[UNAME_LEN]);
+int handle_chat_msg(char chat_msg[MSG_SIZE], int client_idx);
+int handle_score_update_msg(char chat_msg[MSG_SIZE], int client_idx);
+int handle_finished_game_msg(char chat_msg[MSG_SIZE], int client_idx);
 void* service_client(void* arg);
+void* service_game_request(void* arg);
+void gen_nickname(char nickname[UNAME_LEN]);
 void add_client(int client_fd, struct sockaddr_in clientaddrIn);
 void remove_client(int client_idx);
 void sfunc_leaderboard(int argc, char* argv[], int client_idx);
@@ -86,6 +94,9 @@ pthread_mutex_t threadMutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t gameMutexes[MAX_CLIENTS];
 
 #define INVITATION_EXP 30 // seconds
+#define BASELINES_DEFAULT 2
+#define WINLINES_DEFAULT 12
+#define TIME_DEFAULT 5 // minutes
 
 #define N_SFUNCS 10
 char* sfunc_dict[N_SFUNCS] = {"!leaderboard", "!players", "!playerstats", "!battle", "!quick", "!chill", "!go",
@@ -93,7 +104,8 @@ char* sfunc_dict[N_SFUNCS] = {"!leaderboard", "!players", "!playerstats", "!batt
 void (*sfunc[])(int argc, char *argv[], int client_idx) = {&sfunc_leaderboard, &sfunc_players, &sfunc_playerstats,
                                                            &sfunc_battle, &sfunc_quick, &sfunc_chill, &sfunc_go,
                                                            &sfunc_ignore, &sfunc_nickname, &sfunc_help};
-enum MsgType {CHAT = 0, EMPTY = -1};
+enum MsgType {CHAT = 0, SCORE_UPDATE = 1, FINISHED_GAME = 2};
+enum GameType {RISING_TIDE = 0, FAST_TRACK = 1, BOOMER = 2};
 enum State {REJECTED = 0, CONNECTED = 1, FINISHED = 2};
 
 #endif //CPS2008_TETRIS_SERVER_H

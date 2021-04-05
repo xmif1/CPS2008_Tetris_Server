@@ -3,9 +3,11 @@
 int main(){
     int socket_fd = server_init();
 
-    // Initialise clients array to NULLs
+    // Initialise clients and games arrays to NULLs, as well as game session thread mutexes
     for(int i = 0; i < MAX_CLIENTS; i++){
         clients[i] = NULL;
+        games[i] = NULL;
+        gameMutexes[i] = PTHREAD_MUTEX_INITIALIZER;
     }
 
     // Main loop listening for client connections, ready to accept them as sufficient resources become available.
@@ -20,9 +22,6 @@ int main(){
 
         add_client(client_fd, clientaddrIn);
     }
-
-    return 0;
-    // How to gracefully close connections when 'server shuts down'?
 }
 
 int server_init(){
@@ -117,44 +116,18 @@ void* service_client(void* arg){
     int client_fd = ((client*) arg)->client_fd;
     int client_idx = ((client*) arg)->client_idx;
 
+    int break_loop = 0;
     msg recv_msg;
     while(recv(client_fd, (msg*) &recv_msg, sizeof(msg), 0) > 0){
-        if(recv_msg.msg[0] == '!'){
-            char *token = strtok(recv_msg.msg, " ");
-            char **token_list = malloc(0);
-            int n_tokens = 0;
+        switch(recv_msg.msg_type){
+            case CHAT: break_loop = handle_chat_msg(recv_msg.msg, client_idx); break;
+            case SCORE_UPDATE: break_loop = handle_score_update_msg(recv_msg.msg, client_idx); break;
+            case FINISHED_GAME: break_loop = handle_finished_game_msg(recv_msg.msg, client_idx); break;
+            default: break_loop = 0;
+        }
 
-            while(token != NULL){
-                token_list = realloc(token_list, (n_tokens+1)*sizeof(char*));
-
-                if(token_list != NULL){
-                    token_list[n_tokens] = token;
-                    token = strtok(NULL, " ");
-                    n_tokens++;
-                }else{
-                    smrerror("Error during tokenisation of client message");
-                }
-            }
-
-            if(strcmp(token_list[0], "!exit") == 0){
-                break;
-            }else{
-                int msg_flag = 1;
-
-                for(int i = 0; i < N_SFUNCS; i++){
-                    if(strcmp(token_list[0], sfunc_dict[i]) == 0){
-                        (*sfunc)(n_tokens, token_list, client_idx);
-                        msg_flag = 0;
-                        break;
-                    }
-                }
-
-                if(msg_flag){
-                    sfunc_msg(1, (char *[]) {recv_msg.msg}, client_idx);
-                }
-            }
-        }else{
-            sfunc_msg(1, (char*[]){recv_msg.msg}, client_idx);
+        if(break_loop){
+            break;
         }
     }
 
@@ -164,6 +137,9 @@ void* service_client(void* arg){
 
 void* service_game_request(void* arg){
     game_session game = *((game_session*) arg);
+
+    // TO--DO: ADD SENDING OF INVITATION
+
     sleep(INVITATION_EXP);
 
     int n_players = 1;
@@ -179,9 +155,9 @@ void* service_game_request(void* arg){
     }
     pthread_mutex_unlock(gameMutexes + game.game_idx);
 
+    msg send_msg;
+    send_msg.msg_type = CHAT;
     if(n_players == 1){
-        msg send_msg;
-        send_msg.msg_type = CHAT;
         strcpy(send_msg.msg, "Insufficient number of opponents have joined the game session.");
         client_msg(send_msg, game.host.client_idx);
 
@@ -192,6 +168,16 @@ void* service_game_request(void* arg){
         pthread_mutex_unlock(&threadMutex);
     }
     // else: send game request to all etc etc...TO-DO.
+    else{ // for now, simply print the players that will join the session
+        pthread_mutex_lock(gameMutexes + game.game_idx);
+        for(int i = 0; i < 8; i++){
+            if((games[game.game_idx]->opponents)[i] != NULL){
+                strcpy(send_msg.msg, "You have successfully joined the game session...starting soon...");
+                client_msg(send_msg, (games[game.game_idx]->opponents)[i]->client_idx);
+            }
+        }
+        pthread_mutex_unlock(gameMutexes + game.game_idx);
+    }
 
     pthread_exit(NULL);
 }
@@ -218,7 +204,215 @@ void sfunc_players(int argc, char* argv[], int client_idx){
 }
 
 void sfunc_playerstats(int argc, char* argv[], int client_idx){}
-void sfunc_battle(int argc, char* argv[], int client_idx){}
+
+void sfunc_battle(int argc, char* argv[], int client_idx){
+    int parsed_correctly = 1;
+    game_session new_game;
+    msg send_msg;
+    send_msg.msg_type = CHAT;
+
+    pthread_mutex_lock(&threadMutex);
+    if(clients[client_idx] != NULL){
+        new_game.host.client_idx = client_idx;
+        new_game.host.state = CONNECTED;
+        new_game.host.score = 0;
+        strcpy(new_game.host.nickname, clients[client_idx]->nickname);
+
+        new_game.game_idx = -1;
+        new_game.time = -1;
+        new_game.n_winlines = -1;
+        new_game.n_baselines = -1;
+        for(int i = 0; i < 8; i++){
+            new_game.opponents[i] = NULL;
+        }
+
+        if(0 <= clients[client_idx]->game_idx){
+            pthread_mutex_unlock(&threadMutex);
+
+            parsed_correctly = 0;
+            strcpy(send_msg.msg, "Cannot join another game while one is in progress.");
+            client_msg(send_msg, client_idx);
+        }
+        else if(argc < 3){
+            pthread_mutex_unlock(&threadMutex);
+
+            parsed_correctly = 0;
+            strcpy(send_msg.msg, "Insufficient number of arguments: must specify the game type and at least one opponent.");
+            client_msg(send_msg, client_idx);
+        }else{
+            pthread_mutex_unlock(&threadMutex);
+
+            int valid_game_mode = 0;
+            if((strcmp(argv[1], "0") != 0) && (strcmp(argv[1], "1") != 0) && (strcmp(argv[1], "2") != 0)){
+                parsed_correctly = 0;
+                strcpy(send_msg.msg, "Invalid game mode selected.");
+                client_msg(send_msg, client_idx);
+            }else{
+                new_game.game_type = strtol(argv[1], NULL, 10);
+                valid_game_mode = 1;
+            }
+
+            if(valid_game_mode){
+                int n_players = 0;
+
+                for(int i = 2; i < argc; i++){
+                    int opponent_idx = -1;
+
+                    if(strncmp(argv[i], "time=", 5) == 0){
+                        char* rhs = strtok(argv[i], "=");
+                        rhs = strtok(NULL, "=");
+
+                        if(0 < new_game.time){
+                            parsed_correctly = 0;
+                            strcpy(send_msg.msg, "Invalid option: time has been defined more than once. Please specify options once.");
+                            client_msg(send_msg, client_idx);
+                            break;
+                        }
+                        else if(rhs == NULL){
+                            parsed_correctly = 0;
+                            strcpy(send_msg.msg, "Invalid option: right-hand-side for time option must be provided.");
+                            client_msg(send_msg, client_idx);
+                            break;
+                        }else{
+                            int time = strtol(rhs, NULL, 10);
+                            if(time < 1){
+                                parsed_correctly = 0;
+                                strcpy(send_msg.msg, "Invalid option: time must be at least 1 minute.");
+                                client_msg(send_msg, client_idx);
+                                break;
+                            }else{
+                                new_game.time = time;
+                            }
+                        }
+                    }
+                    else if(strncmp(argv[i], "baselines=", 10) == 0){
+                        char* rhs = strtok(argv[i], "=");
+                        rhs = strtok(NULL, "=");
+
+                        if(0 <= new_game.n_baselines){
+                            parsed_correctly = 0;
+                            strcpy(send_msg.msg, "Invalid option: baselines has been defined more than once. Please specify options once.");
+                            client_msg(send_msg, client_idx);
+                            break;
+                        }
+                        else if(rhs == NULL){
+                            parsed_correctly = 0;
+                            strcpy(send_msg.msg, "Invalid option: right-hand-side for baselines option must be provided.");
+                            client_msg(send_msg, client_idx);
+                            break;
+                        }else{
+                            int baselines = strtol(rhs, NULL, 10);
+                            if(baselines < 0){
+                                parsed_correctly = 0;
+                                strcpy(send_msg.msg, "Invalid option: number of baselines must be a positive integer.");
+                                client_msg(send_msg, client_idx);
+                                break;
+                            }else{
+                                new_game.n_baselines = baselines;
+                            }
+                        }
+                    }
+                    else if(strncmp(argv[i], "winlines=", 9) == 0){
+                        char* rhs = strtok(argv[i], "=");
+                        rhs = strtok(NULL, "=");
+
+                        if(0 <= new_game.n_winlines){
+                            parsed_correctly = 0;
+                            strcpy(send_msg.msg, "Invalid option: winlines has been defined more than once. Please specify options once.");
+                            client_msg(send_msg, client_idx);
+                            break;
+                        }
+                        else if(rhs == NULL){
+                            parsed_correctly = 0;
+                            strcpy(send_msg.msg, "Invalid option: right-hand-side for winlines option must be provided.");
+                            client_msg(send_msg, client_idx);
+                            break;
+                        }else{
+                            int winlines = strtol(rhs, NULL, 10);
+                            if(winlines < 0){
+                                parsed_correctly = 0;
+                                strcpy(send_msg.msg, "Invalid option: number of winlines must be a positive integer.");
+                                client_msg(send_msg, client_idx);
+                                break;
+                            }else{
+                                new_game.n_winlines = winlines;
+                            }
+                        }
+                    }
+                    else if(n_players == 7){
+                        parsed_correctly = 0;
+                        strcpy(send_msg.msg, "Invalid number of opponents: too many specified.");
+                        client_msg(send_msg, client_idx);
+                        break;
+                    }else{
+                        pthread_mutex_lock(&threadMutex);
+                        for(int j = 0; j < MAX_CLIENTS; j++){
+                            if(!clients[j]){
+                                continue;
+                            }
+                            else if(strcmp(argv[i], clients[j]->nickname) == 0){
+                                opponent_idx = j;
+                                break;
+                            }
+                        }
+                        pthread_mutex_unlock(&threadMutex);
+
+                        if(opponent_idx < 0){
+                            parsed_correctly = 0;
+                            strcpy(send_msg.msg, "Invalid nickname: the nickname ");
+                            strcat(send_msg.msg, argv[i]);
+                            strcat(send_msg.msg, " does not belong to any active player.");
+                            client_msg(send_msg, client_idx);
+                            break;
+                        }else{
+                            int already_added = 0;
+                            for(int k = 0; k < n_players; k++){
+                                if(strcmp(argv[i], new_game.opponents[k]->nickname) == 0){
+                                    already_added = 1;
+                                    break;
+                                }
+                            }
+
+                            if(already_added){
+                                parsed_correctly  = 0;
+                                strcpy(send_msg.msg, "Invalid nickname: the nickname ");
+                                strcat(send_msg.msg, argv[i]);
+                                strcat(send_msg.msg, " has been listed more than once.");
+                                client_msg(send_msg, client_idx);
+                                break;
+                            }
+                            else{
+                                (new_game.opponents)[n_players] = malloc(sizeof(ingame_client));
+                                (new_game.opponents)[n_players]->state = REJECTED;
+                                (new_game.opponents)[n_players]->score = 0;
+                                (new_game.opponents)[n_players]->client_idx = opponent_idx;
+                                strcpy((new_game.opponents)[n_players]->nickname, argv[i]);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if(parsed_correctly){
+            if(new_game.n_baselines < 0){
+                new_game.n_baselines = BASELINES_DEFAULT;
+            }
+
+            if(new_game.n_winlines < 0){
+                new_game.n_winlines = WINLINES_DEFAULT;
+            }
+
+            if(new_game.time < 0){
+                new_game.time = TIME_DEFAULT;
+            }
+
+            // TO--DO: Create game session thread etc...
+            // Remember to check nicknameQ and pthread_mutex release
+        }
+    }
+}
+
 void sfunc_quick(int argc, char* argv[], int client_idx){}
 void sfunc_chill(int argc, char* argv[], int client_idx){}
 
@@ -380,6 +574,62 @@ void client_msg(msg send_msg, int client_idx){
     }else{
         pthread_mutex_unlock(&threadMutex);
     }
+}
+
+int handle_chat_msg(char chat_msg[MSG_SIZE], int client_idx){
+    if(char_msg[0] == '!'){
+        char *token = strtok(char_msg, " ");
+        char **token_list = malloc(0);
+        int n_tokens = 0;
+
+        while(token != NULL){
+            token_list = realloc(token_list, (n_tokens+1)*sizeof(char*));
+
+            if(token_list != NULL){
+                token_list[n_tokens] = token;
+                token = strtok(NULL, " ");
+                n_tokens++;
+            }else{
+                smrerror("Error during tokenisation of client message");
+
+                msg err_msg;
+                err_msg.msg_type = CHAT;
+                strcpy(err_msg.msg, "Server was unable to process your request. Please try again.")
+                client_msg(err_msg, client_idx);
+
+                return 1;
+            }
+        }
+
+        if(strcmp(token_list[0], "!exit") == 0){
+            return 0;
+        }else{
+            int msg_flag = 1;
+
+            for(int i = 0; i < N_SFUNCS; i++){
+                if(strcmp(token_list[0], sfunc_dict[i]) == 0){
+                    (*sfunc)(n_tokens, token_list, client_idx);
+                    msg_flag = 0;
+                    break;
+                }
+            }
+
+            if(msg_flag){
+                sfunc_msg(1, (char *[]) {char_msg}, client_idx);
+            }
+        }
+    }else{
+        sfunc_msg(1, (char*[]) {char_msg}, client_idx);
+    }
+
+    return 1;
+}
+
+int handle_score_update_msg(char chat_msg[MSG_SIZE], int client_idx){
+    return 1;
+}
+int handle_finished_game_msg(char chat_msg[MSG_SIZE], int client_idx){
+    return 1;
 }
 
 /* ----------- ERROR HANDLING ----------- */
