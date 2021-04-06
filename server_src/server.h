@@ -90,7 +90,8 @@ client* clients[MAX_CLIENTS]; int n_clients = 0;
 game_session* games[MAX_CLIENTS];
 pthread_t service_threads[MAX_CLIENTS];
 pthread_t game_threads[MAX_CLIENTS];
-pthread_mutex_t threadMutex = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t client_threadMutex = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t game_threadMutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t gameMutexes[MAX_CLIENTS];
 
 #define INVITATION_EXP 30 // seconds

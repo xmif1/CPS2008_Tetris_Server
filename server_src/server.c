@@ -56,7 +56,9 @@ int server_init(){
 
 void add_client(int client_fd, struct sockaddr_in clientaddrIn){
     if(n_clients < MAX_CLIENTS - 1){ // if further resource constraints exist, add them here
-        pthread_mutex_lock(&threadMutex);
+        char nickname[UNAME_LEN] = {0}; gen_nickname(nickname);
+        
+        pthread_mutex_lock(&client_threadMutex);
         int i = 0;
         for(; i < MAX_CLIENTS; i++){
             if(clients[i] == NULL){
@@ -72,8 +74,6 @@ void add_client(int client_fd, struct sockaddr_in clientaddrIn){
         clients[i]->high_score = 0;
         clients[i]->n_wins = 0;
         clients[i]->n_losses = 0;
-
-        char nickname[UNAME_LEN] = {0}; gen_nickname(nickname);
         strcpy(clients[i]->nickname, nickname);
 
         if(pthread_create(service_threads + i, NULL, service_client, (void*) clients[i]) != 0){
@@ -82,7 +82,7 @@ void add_client(int client_fd, struct sockaddr_in clientaddrIn){
 
         n_clients++;
 
-        pthread_mutex_unlock(&threadMutex);
+        pthread_mutex_unlock(&client_threadMutex);
     }else{
         msg err_msg;
         err_msg.msg_type = CHAT;
@@ -97,7 +97,7 @@ void add_client(int client_fd, struct sockaddr_in clientaddrIn){
 }
 
 void remove_client(int client_idx){
-    pthread_mutex_lock(&threadMutex);
+    pthread_mutex_lock(&client_threadMutex);
     if(clients[client_idx] != NULL){
         close(clients[client_idx]->client_fd);
 
@@ -105,7 +105,7 @@ void remove_client(int client_idx){
         clients[client_idx] = NULL;
         n_clients--;
     }
-    pthread_mutex_unlock(&threadMutex);
+    pthread_mutex_unlock(&client_threadMutex);
 }
 
 /* -------- THREADED FUNCTIONS -------- */
@@ -161,11 +161,11 @@ void* service_game_request(void* arg){
         strcpy(send_msg.msg, "Insufficient number of opponents have joined the game session.");
         client_msg(send_msg, game.host.client_idx);
 
-        pthread_mutex_lock(&threadMutex);
+        pthread_mutex_lock(&client_threadMutex);
         clients[game.host.client_idx]->game_idx = -1;
         free(games[game.game_idx]);
         games[game.game_idx] = NULL;
-        pthread_mutex_unlock(&threadMutex);
+        pthread_mutex_unlock(&client_threadMutex);
     }
     // else: send game request to all etc etc...TO-DO.
     else{ // for now, simply print the players that will join the session
@@ -191,14 +191,14 @@ void sfunc_players(int argc, char* argv[], int client_idx){
     send_msg.msg_type = CHAT;
     strcpy(send_msg.msg, "Waiting Players:");
 
-    pthread_mutex_lock(&threadMutex);
+    pthread_mutex_lock(&client_threadMutex);
     for(int i = 0; i < MAX_CLIENTS; i++){
         if((clients[i] != NULL) && (clients[i]->game_idx < 0)){
             strcat(send_msg.msg, "\n\t");
             strcat(send_msg.msg, clients[i]->nickname);
         }
     }
-    pthread_mutex_unlock(&threadMutex);
+    pthread_mutex_unlock(&client_threadMutex);
 
     client_msg(send_msg, client_idx);
 }
@@ -211,7 +211,7 @@ void sfunc_battle(int argc, char* argv[], int client_idx){
     msg send_msg;
     send_msg.msg_type = CHAT;
 
-    pthread_mutex_lock(&threadMutex);
+    pthread_mutex_lock(&client_threadMutex);
     if(clients[client_idx] != NULL){
         new_game.host.client_idx = client_idx;
         new_game.host.state = CONNECTED;
@@ -227,20 +227,20 @@ void sfunc_battle(int argc, char* argv[], int client_idx){
         }
 
         if(0 <= clients[client_idx]->game_idx){
-            pthread_mutex_unlock(&threadMutex);
+            pthread_mutex_unlock(&client_threadMutex);
 
             parsed_correctly = 0;
             strcpy(send_msg.msg, "Cannot join another game while one is in progress.");
             client_msg(send_msg, client_idx);
         }
         else if(argc < 3){
-            pthread_mutex_unlock(&threadMutex);
+            pthread_mutex_unlock(&client_threadMutex);
 
             parsed_correctly = 0;
             strcpy(send_msg.msg, "Insufficient number of arguments: must specify the game type and at least one opponent.");
             client_msg(send_msg, client_idx);
         }else{
-            pthread_mutex_unlock(&threadMutex);
+            pthread_mutex_unlock(&client_threadMutex);
 
             int valid_game_mode = 0;
             if((strcmp(argv[1], "0") != 0) && (strcmp(argv[1], "1") != 0) && (strcmp(argv[1], "2") != 0)){
@@ -345,7 +345,7 @@ void sfunc_battle(int argc, char* argv[], int client_idx){
                         client_msg(send_msg, client_idx);
                         break;
                     }else{
-                        pthread_mutex_lock(&threadMutex);
+                        pthread_mutex_lock(&client_threadMutex);
                         for(int j = 0; j < MAX_CLIENTS; j++){
                             if(!clients[j]){
                                 continue;
@@ -355,7 +355,7 @@ void sfunc_battle(int argc, char* argv[], int client_idx){
                                 break;
                             }
                         }
-                        pthread_mutex_unlock(&threadMutex);
+                        pthread_mutex_unlock(&client_threadMutex);
 
                         if(opponent_idx < 0){
                             parsed_correctly = 0;
@@ -374,7 +374,7 @@ void sfunc_battle(int argc, char* argv[], int client_idx){
                             }
 
                             if(already_added){
-                                parsed_correctly  = 0;
+                                parsed_correctly = 0;
                                 strcpy(send_msg.msg, "Invalid nickname: the nickname ");
                                 strcat(send_msg.msg, argv[i]);
                                 strcat(send_msg.msg, " has been listed more than once.");
@@ -387,6 +387,8 @@ void sfunc_battle(int argc, char* argv[], int client_idx){
                                 (new_game.opponents)[n_players]->score = 0;
                                 (new_game.opponents)[n_players]->client_idx = opponent_idx;
                                 strcpy((new_game.opponents)[n_players]->nickname, argv[i]);
+                                
+                                n_players++;
                             }
                         }
                     }
@@ -406,9 +408,23 @@ void sfunc_battle(int argc, char* argv[], int client_idx){
             if(new_game.time < 0){
                 new_game.time = TIME_DEFAULT;
             }
+            
+            pthread_mutex_lock(&game_threadMutex);
+            int game_idx = 0;
+            for(; game_idx < MAX_CLIENTS; i++){
+                if(games[game_idx] == NULL){
+                    break;
+                }
+            }
 
-            // TO--DO: Create game session thread etc...
-            // Remember to check nicknameQ and pthread_mutex release
+            games[game_idx] = malloc(sizeof(client));
+            new_game.game_idx = game_idx;
+            games[game_idx] = new_game;
+            pthread_mutex_unlock(&game_threadMutex);
+
+            pthread_mutex_lock(&client_threadMutex);
+            clients[client_idx]->game_idx = game_idx;
+            pthread_mutex_unlock(&client_threadMutex);
         }
     }
 }
@@ -435,13 +451,13 @@ void sfunc_go(int argc, char* argv[], int client_idx) {
             for(int i = 0; i < 8; i++){
                 if((games[game_idx]->opponents)[i]->client_idx == client_idx){
                     registered_in_game = 1;
-                    pthread_mutex_lock(&threadMutex);
+                    pthread_mutex_lock(&client_threadMutex);
                     if((clients[client_idx] != NULL) && (clients[client_idx]->game_idx < 0)){
                         clients[client_idx]->game_idx = game_idx;
                         (games[game_idx]->opponents)[i]->state = CONNECTED;
-                        pthread_mutex_unlock(&threadMutex);
+                        pthread_mutex_unlock(&client_threadMutex);
                     }else{
-                        pthread_mutex_unlock(&threadMutex);
+                        pthread_mutex_unlock(&client_threadMutex);
 
                         strcpy(send_msg.msg, "Cannot join another game while one is in progress.");
                         client_msg(send_msg, client_idx);
@@ -506,7 +522,7 @@ void sfunc_nickname(int argc, char* argv[], int client_idx){}
 void sfunc_help(int argc, char* argv[], int client_idx){}
 
 void sfunc_msg(int argc, char* argv[], int client_idx){
-    pthread_mutex_lock(&threadMutex);
+    pthread_mutex_lock(&client_threadMutex);
     if(clients[client_idx] != NULL){
         char nickname[UNAME_LEN] = {0};
         strcpy(nickname, clients[client_idx]->nickname);
@@ -521,14 +537,14 @@ void sfunc_msg(int argc, char* argv[], int client_idx){
 
                 if(send(clients[i]->client_fd, (void *) &send_msg, sizeof(msg), 0) < 0){
                     pthread_cancel(service_threads[i]);
-                    pthread_mutex_unlock(&threadMutex);
+                    pthread_mutex_unlock(&client_threadMutex);
                     remove_client(i);
-                    pthread_mutex_lock(&threadMutex);
+                    pthread_mutex_lock(&client_threadMutex);
                 }
             }
         }
     }
-    pthread_mutex_unlock(&threadMutex);
+    pthread_mutex_unlock(&client_threadMutex);
 }
 
 /* --------- UTILITY FUNCTIONS --------- */
@@ -553,6 +569,7 @@ void gen_nickname(char nickname[UNAME_LEN]){
 
 // Returns 1 if the nickname is not unique, 0 otherwise.
 int nickname_uniqueQ(char nickname[UNAME_LEN]){
+    pthread_mutex_lock(&client_threadMutex);
     for(int i = 0; i < MAX_CLIENTS; i++){
        if(!clients[i]){
            continue;
@@ -561,18 +578,19 @@ int nickname_uniqueQ(char nickname[UNAME_LEN]){
            return 1;
        }
     }
+    pthread_mutex_unlock(&client_threadMutex);
 
     return 0;
 }
 
 void client_msg(msg send_msg, int client_idx){
-    pthread_mutex_lock(&threadMutex);
+    pthread_mutex_lock(&client_threadMutex);
     if((clients[client_idx] != NULL) && (send(clients[client_idx]->client_fd, (void*) &send_msg, sizeof(msg), 0) < 0)){
         pthread_cancel(service_threads[client_idx]);
-        pthread_mutex_unlock(&threadMutex);
+        pthread_mutex_unlock(&client_threadMutex);
         remove_client(client_idx);
     }else{
-        pthread_mutex_unlock(&threadMutex);
+        pthread_mutex_unlock(&client_threadMutex);
     }
 }
 
