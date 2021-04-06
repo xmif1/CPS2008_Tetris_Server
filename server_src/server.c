@@ -7,7 +7,7 @@ int main(){
     for(int i = 0; i < MAX_CLIENTS; i++){
         clients[i] = NULL;
         games[i] = NULL;
-        gameMutexes[i] = PTHREAD_MUTEX_INITIALIZER;
+        pthread_mutex_init(&gameMutexes[i], NULL);
     }
 
     // Main loop listening for client connections, ready to accept them as sufficient resources become available.
@@ -57,7 +57,7 @@ int server_init(){
 void add_client(int client_fd, struct sockaddr_in clientaddrIn){
     if(n_clients < MAX_CLIENTS - 1){ // if further resource constraints exist, add them here
         char nickname[UNAME_LEN] = {0}; gen_nickname(nickname);
-        
+
         pthread_mutex_lock(&client_threadMutex);
         int i = 0;
         for(; i < MAX_CLIENTS; i++){
@@ -411,7 +411,7 @@ void sfunc_battle(int argc, char* argv[], int client_idx){
             
             pthread_mutex_lock(&game_threadMutex);
             int game_idx = 0;
-            for(; game_idx < MAX_CLIENTS; i++){
+            for(; game_idx < MAX_CLIENTS; game_idx++){
                 if(games[game_idx] == NULL){
                     break;
                 }
@@ -419,7 +419,7 @@ void sfunc_battle(int argc, char* argv[], int client_idx){
 
             games[game_idx] = malloc(sizeof(client));
             new_game.game_idx = game_idx;
-            games[game_idx] = new_game;
+            games[game_idx] = &new_game;
             pthread_mutex_unlock(&game_threadMutex);
 
             pthread_mutex_lock(&client_threadMutex);
@@ -441,7 +441,7 @@ void sfunc_go(int argc, char* argv[], int client_idx) {
         client_msg(send_msg, client_idx);
     }else{
         int game_idx = strtol(argv[1], NULL, 10);
-        if(game_idx < 0 || MAX_CLIENTS <= game_idx){
+        if(game_idx < 0 || MAX_CLIENTS <= game_idx || games[game_idx] == NULL){
             strcpy(send_msg.msg, "Invalid game id: does not exist.");
             client_msg(send_msg, client_idx);
         }else{
@@ -483,7 +483,7 @@ void sfunc_ignore(int argc, char* argv[], int client_idx){
         client_msg(send_msg, client_idx);
     }else{
         int game_idx = strtol(argv[1], NULL, 10);
-        if(game_idx < 0 || MAX_CLIENTS <= game_idx){
+        if(game_idx < 0 || MAX_CLIENTS <= game_idx || games[game_idx] == NULL){
             strcpy(send_msg.msg, "Invalid game id: does not exist.");
             client_msg(send_msg, client_idx);
         }else{
@@ -595,8 +595,8 @@ void client_msg(msg send_msg, int client_idx){
 }
 
 int handle_chat_msg(char chat_msg[MSG_SIZE], int client_idx){
-    if(char_msg[0] == '!'){
-        char *token = strtok(char_msg, " ");
+    if(chat_msg[0] == '!'){
+        char *token = strtok(chat_msg, " ");
         char **token_list = malloc(0);
         int n_tokens = 0;
 
@@ -612,35 +612,35 @@ int handle_chat_msg(char chat_msg[MSG_SIZE], int client_idx){
 
                 msg err_msg;
                 err_msg.msg_type = CHAT;
-                strcpy(err_msg.msg, "Server was unable to process your request. Please try again.")
+                strcpy(err_msg.msg, "Server was unable to process your request. Please try again.");
                 client_msg(err_msg, client_idx);
 
-                return 1;
+                return 0;
             }
         }
 
         if(strcmp(token_list[0], "!exit") == 0){
-            return 0;
+            return 1;
         }else{
             int msg_flag = 1;
 
             for(int i = 0; i < N_SFUNCS; i++){
                 if(strcmp(token_list[0], sfunc_dict[i]) == 0){
-                    (*sfunc)(n_tokens, token_list, client_idx);
+                    (*sfunc[i])(n_tokens, token_list, client_idx);
                     msg_flag = 0;
                     break;
                 }
             }
 
             if(msg_flag){
-                sfunc_msg(1, (char *[]) {char_msg}, client_idx);
+                sfunc_msg(1, (char *[]) {chat_msg}, client_idx);
             }
         }
     }else{
-        sfunc_msg(1, (char*[]) {char_msg}, client_idx);
+        sfunc_msg(1, (char*[]) {chat_msg}, client_idx);
     }
 
-    return 1;
+    return 0;
 }
 
 int handle_score_update_msg(char chat_msg[MSG_SIZE], int client_idx){
