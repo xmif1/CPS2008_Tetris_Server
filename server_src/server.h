@@ -42,8 +42,7 @@ typedef struct{
 }ingame_client;
 
 typedef struct{
-    ingame_client host;
-    ingame_client* opponents[7];
+    ingame_client* players[8];
     int game_idx;
     int game_type;
     int n_baselines;
@@ -91,6 +90,7 @@ game_session* games[MAX_CLIENTS];
 pthread_t service_threads[MAX_CLIENTS];
 pthread_t game_threads[MAX_CLIENTS];
 pthread_mutex_t client_threadMutex = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t clientMutexes[MAX_CLIENTS];
 pthread_mutex_t game_threadMutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t gameMutexes[MAX_CLIENTS];
 
