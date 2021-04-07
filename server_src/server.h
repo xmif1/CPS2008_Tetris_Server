@@ -78,8 +78,6 @@ void sfunc_nickname(int argc, char* argv[], int client_idx);
 void sfunc_help(int argc, char* argv[], int client_idx);
 void sfunc_msg(int argc, char* argv[], int client_idx);
 void client_msg(msg send_msg, int client_idx);
-void game_threadMutex_lock();
-void game_threadMutex_unlock();
 void mrerror(char* err_msg);
 void smrerror(char* err_msg);
 void red();
