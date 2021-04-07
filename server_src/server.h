@@ -78,6 +78,8 @@ void sfunc_nickname(int argc, char* argv[], int client_idx);
 void sfunc_help(int argc, char* argv[], int client_idx);
 void sfunc_msg(int argc, char* argv[], int client_idx);
 void client_msg(msg send_msg, int client_idx);
+void game_threadMutex_lock();
+void game_threadMutex_unlock();
 void mrerror(char* err_msg);
 void smrerror(char* err_msg);
 void red();
@@ -89,9 +91,7 @@ client* clients[MAX_CLIENTS]; int n_clients = 0;
 game_session* games[MAX_CLIENTS];
 pthread_t service_threads[MAX_CLIENTS];
 pthread_t game_threads[MAX_CLIENTS];
-pthread_mutex_t client_threadMutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t clientMutexes[MAX_CLIENTS];
-pthread_mutex_t game_threadMutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t gameMutexes[MAX_CLIENTS];
 
 #define INVITATION_EXP 30 // seconds

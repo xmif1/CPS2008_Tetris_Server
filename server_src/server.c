@@ -60,11 +60,14 @@ void add_client(int client_fd, struct sockaddr_in clientaddrIn){
     if(n_clients < MAX_CLIENTS - 1){ // if further resource constraints exist, add them here
         char nickname[UNAME_LEN] = {0}; gen_nickname(nickname);
 
-        pthread_mutex_lock(&client_threadMutex);
         int i = 0;
         for(; i < MAX_CLIENTS; i++){
+            pthread_mutex_lock(clientMutexes + i);
             if(clients[i] == NULL){
                 break;
+            }
+            else{
+                pthread_mutex_unlock(clientMutexes + i);
             }
         }
 
@@ -84,7 +87,7 @@ void add_client(int client_fd, struct sockaddr_in clientaddrIn){
 
         n_clients++;
 
-        pthread_mutex_unlock(&client_threadMutex);
+        pthread_mutex_unlock(clientMutexes + i);
     }else{
         msg err_msg;
         err_msg.msg_type = CHAT;
@@ -108,6 +111,16 @@ void remove_client(int client_idx){
         n_clients--;
     }
     pthread_mutex_unlock(clientMutexes + client_idx);
+
+    msg send_msg;
+    send_msg.msg_type = CHAT;
+    strcpy(send_msg.msg, "Player ");
+    strcat(send_msg.msg, clients[client_idx]->nickname);
+    strcat(send_msg.msg, " has disconnected.");
+
+    for(int i = 0; i < MAX_CLIENTS; i++){
+        client_msg(send_msg, i);
+    }
 }
 
 /* -------- THREADED FUNCTIONS -------- */
@@ -196,14 +209,14 @@ void sfunc_players(int argc, char* argv[], int client_idx){
     send_msg.msg_type = CHAT;
     strcpy(send_msg.msg, "Waiting Players:");
 
-    pthread_mutex_lock(&client_threadMutex);
     for(int i = 0; i < MAX_CLIENTS; i++){
+        pthread_mutex_lock(clientMutexes + i);
         if((clients[i] != NULL) && (clients[i]->game_idx < 0)){
             strcat(send_msg.msg, "\n\t");
             strcat(send_msg.msg, clients[i]->nickname);
         }
+        pthread_mutex_unlock(clientMutexes + i);
     }
-    pthread_mutex_unlock(&client_threadMutex);
 
     client_msg(send_msg, client_idx);
 }
@@ -351,17 +364,17 @@ void sfunc_battle(int argc, char* argv[], int client_idx){
                         client_msg(send_msg, client_idx);
                         break;
                     }else{
-                        pthread_mutex_lock(&client_threadMutex);
                         for(int j = 0; j < MAX_CLIENTS; j++){
+                            pthread_mutex_lock(clientMutexes + j);
                             if(!clients[j]){
-                                continue;
+                                pthread_mutex_unlock(clientMutexes + i);
                             }
                             else if(strcmp(argv[i], clients[j]->nickname) == 0){
                                 opponent_idx = j;
+                                pthread_mutex_unlock(clientMutexes + j);
                                 break;
                             }
                         }
-                        pthread_mutex_unlock(&client_threadMutex);
 
                         if(opponent_idx < 0){
                             parsed_correctly = 0;
@@ -414,19 +427,22 @@ void sfunc_battle(int argc, char* argv[], int client_idx){
             if(new_game.time < 0){
                 new_game.time = TIME_DEFAULT;
             }
-            
-            pthread_mutex_lock(&game_threadMutex);
+
             int game_idx = 0;
             for(; game_idx < MAX_CLIENTS; game_idx++){
+                pthread_mutex_lock(gameMutexes + game_idx);
                 if(games[game_idx] == NULL){
                     break;
+                }
+                else{
+                    pthread_mutex_unlock(gameMutexes + game_idx);
                 }
             }
 
             games[game_idx] = malloc(sizeof(client));
             new_game.game_idx = game_idx;
             games[game_idx] = &new_game;
-            pthread_mutex_unlock(&game_threadMutex);
+            pthread_mutex_unlock(gameMutexes + game_idx);
 
             pthread_mutex_lock(clientMutexes + client_idx);
             clients[client_idx]->game_idx = game_idx;
@@ -534,12 +550,16 @@ void sfunc_nickname(int argc, char* argv[], int client_idx){}
 void sfunc_help(int argc, char* argv[], int client_idx){}
 
 void sfunc_msg(int argc, char* argv[], int client_idx){
-    pthread_mutex_lock(&client_threadMutex);
+    pthread_mutex_lock(clientMutexes + client_idx);
     if(clients[client_idx] != NULL){
         char nickname[UNAME_LEN] = {0};
         strcpy(nickname, clients[client_idx]->nickname);
 
         for(int i = 0; i < MAX_CLIENTS; i++){
+            if(i != client_idx){
+                pthread_mutex_lock(clientMutexes + i);
+            }
+
             if(clients[i] != NULL){
                 msg send_msg;
                 send_msg.msg_type = CHAT;
@@ -549,14 +569,18 @@ void sfunc_msg(int argc, char* argv[], int client_idx){
 
                 if(send(clients[i]->client_fd, (void *) &send_msg, sizeof(msg), 0) < 0){
                     pthread_cancel(service_threads[i]);
-                    pthread_mutex_unlock(&client_threadMutex);
+                    pthread_mutex_unlock(clientMutexes + i);
                     remove_client(i);
-                    pthread_mutex_lock(&client_threadMutex);
+                    pthread_mutex_lock(clientMutexes + i);
                 }
+            }
+
+            if(i != client_idx){
+                pthread_mutex_unlock(clientMutexes + i);
             }
         }
     }
-    pthread_mutex_unlock(&client_threadMutex);
+    pthread_mutex_unlock(clientMutexes + client_idx);
 }
 
 /* --------- UTILITY FUNCTIONS --------- */
@@ -581,16 +605,16 @@ void gen_nickname(char nickname[UNAME_LEN]){
 
 // Returns 1 if the nickname is not unique, 0 otherwise.
 int nickname_uniqueQ(char nickname[UNAME_LEN]){
-    pthread_mutex_lock(&client_threadMutex);
     for(int i = 0; i < MAX_CLIENTS; i++){
-       if(!clients[i]){
-           continue;
-       }
-       else if(strcmp(nickname, clients[i]->nickname) == 0){
-           return 1;
-       }
+        pthread_mutex_lock(clientMutexes + i);
+        if(!clients[i]){
+            pthread_mutex_unlock(clientMutexes + i);
+        }
+        else if(strcmp(nickname, clients[i]->nickname) == 0){
+            pthread_mutex_unlock(clientMutexes + i);
+            return 1;
+        }
     }
-    pthread_mutex_unlock(&client_threadMutex);
 
     return 0;
 }
