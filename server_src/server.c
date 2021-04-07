@@ -154,16 +154,16 @@ void* service_game_request(void* arg){
     int game_idx = *((int*) arg);
 
     pthread_mutex_lock(gameMutexes + game_idx);
-    if(games[game.game_idx] != NULL){
+    if(games[game_idx] != NULL){
         msg request_msg;
         request_msg.msg_type = CHAT;
         strcpy(request_msg.msg, "Player ");
         strcat(request_msg.msg, (games[game_idx]->players)[0]->nickname);
         strcat(request_msg.msg, " has invited to a game of Super Battle Tetris: ");
-        if(game.game_type == RISING_TIDE){
+        if(games[game_idx]->game_type == RISING_TIDE){
             strcat(request_msg.msg, "Rising Tide!\n\nThe invited players are:");
         }
-        else if(game.game_type == FAST_TRACK){
+        else if(games[game_idx]->game_type == FAST_TRACK){
             strcat(request_msg.msg, "Fast Track!\n");
 
             strcat(request_msg.msg, "The number of baselines is ");
@@ -184,13 +184,13 @@ void* service_game_request(void* arg){
         }
 
         for(int i = 0; i < MAX_CLIENTS; i++){
-            if((game.players)[i] != NULL){
+            if((games[game_idx]->players)[i] != NULL){
                 strcat(request_msg.msg, "\n\t");
                 strcat(request_msg.msg, (games[game_idx]->players)[i]->nickname);
             }
         }
 
-        char game_id[(int) floor(log10(k))+2]; sprintf(game_id, "%d", game_idx);
+        char game_id[(int) floor(log10(game_idx))+2]; sprintf(game_id, "%d", game_idx);
         strcat(request_msg.msg, "\n\n The game id is: ");
         strcat(request_msg.msg, game_id);
         strcat(request_msg.msg, ".");
@@ -222,12 +222,13 @@ void* service_game_request(void* arg){
         msg send_msg;
         send_msg.msg_type = CHAT;
         if(n_players == 1){
+            int client_idx = (games[game_idx]->players)[0]->client_idx;
             strcpy(send_msg.msg, "Insufficient number of players have joined the game session.");
-            client_msg(send_msg, (games[game_idx]->players)[0].client_idx);
+            client_msg(send_msg, client_idx);
 
             pthread_mutex_lock(clientMutexes + client_idx);
-            if(clients[(games[game_idx]->players)[0].client_idx] != NULL){
-                clients[(games[game_idx]->players)[0].client_idx]->game_idx = -1;
+            if(clients[client_idx] != NULL){
+                clients[client_idx]->game_idx = -1;
             }
             pthread_mutex_unlock(clientMutexes + client_idx);
 
@@ -280,10 +281,10 @@ void sfunc_battle(int argc, char* argv[], int client_idx){
     pthread_mutex_lock(clientMutexes + client_idx);
     if(clients[client_idx] != NULL){
         (new_game.players)[0] = malloc(sizeof(ingame_client));
-        (new_game.players)[0].client_idx = client_idx;
-        (new_game.players)[0].state = CONNECTED;
-        (new_game.players)[0].score = 0;
-        strcpy((new_game.players)[0].nickname, clients[client_idx]->nickname);
+        (new_game.players)[0]->client_idx = client_idx;
+        (new_game.players)[0]->state = CONNECTED;
+        (new_game.players)[0]->score = 0;
+        strcpy((new_game.players)[0]->nickname, clients[client_idx]->nickname);
 
         new_game.game_idx = -1;
         new_game.time = -1;
