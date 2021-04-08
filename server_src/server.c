@@ -104,22 +104,26 @@ void add_client(int client_fd, struct sockaddr_in clientaddrIn){
 void remove_client(int client_idx){
     pthread_mutex_lock(clientMutexes + client_idx);
     if(clients[client_idx] != NULL){
+        msg send_msg;
+        send_msg.msg_type = CHAT;
+        strcpy(send_msg.msg, "Player ");
+        strcat(send_msg.msg, clients[client_idx]->nickname);
+        strcat(send_msg.msg, " has disconnected.");
+
         close(clients[client_idx]->client_fd);
 
         free(clients[client_idx]);
         clients[client_idx] = NULL;
         n_clients--;
-    }
-    pthread_mutex_unlock(clientMutexes + client_idx);
 
-    msg send_msg;
-    send_msg.msg_type = CHAT;
-    strcpy(send_msg.msg, "Player ");
-    strcat(send_msg.msg, clients[client_idx]->nickname);
-    strcat(send_msg.msg, " has disconnected.");
+        pthread_mutex_unlock(clientMutexes + client_idx);
 
-    for(int i = 0; i < MAX_CLIENTS; i++){
-        client_msg(send_msg, i);
+        for(int i = 0; i < MAX_CLIENTS; i++){
+       	    client_msg(send_msg, i);
+        }
+
+    }else{
+        pthread_mutex_unlock(clientMutexes + client_idx);
     }
 }
 
@@ -183,19 +187,18 @@ void* service_game_request(void* arg){
             strcat(request_msg.msg, " minutes.\n\nThe invited players are:");
         }
 
-        for(int i = 0; i < MAX_CLIENTS; i++){
+        for(int i = 0; i < 8; i++){
             if((games[game_idx]->players)[i] != NULL){
                 strcat(request_msg.msg, "\n\t");
                 strcat(request_msg.msg, (games[game_idx]->players)[i]->nickname);
             }
         }
 
-        char game_id[(int) floor(log10(game_idx))+2]; sprintf(game_id, "%d", game_idx);
-        strcat(request_msg.msg, "\n\n The game id is: ");
-        strcat(request_msg.msg, game_id);
-        strcat(request_msg.msg, ".");
+        char game_idx_str[(int) floor(log10(MAX_CLIENTS))+2]; sprintf(game_idx_str, "%d", game_idx);
+        strcat(request_msg.msg, "\n\nThe game id is: ");
+        strcat(request_msg.msg, game_idx_str);
 
-        for(int i = 0; i < MAX_CLIENTS; i++){
+        for(int i = 1; i < 8; i++){
             if((games[game_idx]->players)[i] != NULL){
                 client_msg(request_msg, (games[game_idx]->players)[i]->client_idx);
             }
@@ -423,6 +426,7 @@ void sfunc_battle(int argc, char* argv[], int client_idx){
                                 pthread_mutex_unlock(clientMutexes + j);
                                 break;
                             }
+                            pthread_mutex_unlock(clientMutexes + j);
                         }
 
                         if(opponent_idx < 0){
@@ -527,7 +531,7 @@ void sfunc_go(int argc, char* argv[], int client_idx) {
             int registered_in_game = 0;
 
             for(int i = 0; i < 8; i++){
-                if((games[game_idx]->players)[i]->client_idx == client_idx){
+                if(((games[game_idx]->players)[i] != NULL) && ((games[game_idx]->players)[i]->client_idx == client_idx)){
                     registered_in_game = 1;
                     pthread_mutex_lock(clientMutexes + client_idx);
                     if((clients[client_idx] != NULL) && (clients[client_idx]->game_idx < 0)){
@@ -572,7 +576,7 @@ void sfunc_ignore(int argc, char* argv[], int client_idx){
             int registered_in_game = -1;
 
             for(int i = 0; i < 8; i++){
-                if((games[game_idx]->players)[i]->client_idx == client_idx){
+                if(((games[game_idx]->players)[i] != NULL) && ((games[game_idx]->players)[i]->client_idx == client_idx)){
                     registered_in_game = i;
                 }
             }
@@ -589,7 +593,7 @@ void sfunc_ignore(int argc, char* argv[], int client_idx){
                 strcat(send_msg.msg, ".");
 
                 for(int i = 0; i < 8; i++){
-                    if((games[game_idx]->players)[i]->client_idx != client_idx){
+                    if(((games[game_idx]->players)[i] != NULL) && ((games[game_idx]->players)[i]->client_idx == client_idx)){
                         client_msg(send_msg, (games[game_idx]->players)[i]->client_idx);
                     }
                 }
@@ -668,6 +672,7 @@ int nickname_uniqueQ(char nickname[UNAME_LEN]){
             pthread_mutex_unlock(clientMutexes + i);
             return 1;
         }
+        pthread_mutex_unlock(clientMutexes + i);
     }
 
     return 0;
