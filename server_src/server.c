@@ -492,7 +492,7 @@ void sfunc_battle(int argc, char* argv[], int client_idx){
                 }
             }
 
-            games[game_idx] = malloc(sizeof(client));
+            games[game_idx] = malloc(sizeof(game_session));
             new_game.game_idx = game_idx;
             games[game_idx] = &new_game;
 
