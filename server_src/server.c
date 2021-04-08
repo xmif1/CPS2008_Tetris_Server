@@ -217,7 +217,7 @@ void* service_game_request(void* arg){
                 free((games[game_idx]->players)[i]);
                 (games[game_idx]->players)[i] = NULL;
             }
-            else{
+            else if((games[game_idx]->players)[i] != NULL){
                 n_players++;
             }
         }
@@ -277,24 +277,36 @@ void sfunc_playerstats(int argc, char* argv[], int client_idx){}
 
 void sfunc_battle(int argc, char* argv[], int client_idx){
     int parsed_correctly = 1;
-    game_session new_game;
     msg send_msg;
     send_msg.msg_type = CHAT;
 
     pthread_mutex_lock(clientMutexes + client_idx);
     if(clients[client_idx] != NULL){
-        (new_game.players)[0] = malloc(sizeof(ingame_client));
-        (new_game.players)[0]->client_idx = client_idx;
-        (new_game.players)[0]->state = CONNECTED;
-        (new_game.players)[0]->score = 0;
-        strcpy((new_game.players)[0]->nickname, clients[client_idx]->nickname);
+        int game_idx = 0;
+        for(; game_idx < MAX_CLIENTS; game_idx++){
+            pthread_mutex_lock(gameMutexes + game_idx);
+            if(games[game_idx] == NULL){
+                break;
+            }
+            else{
+                pthread_mutex_unlock(gameMutexes + game_idx);
+            }
+        }
 
-        new_game.game_idx = -1;
-        new_game.time = -1;
-        new_game.n_winlines = -1;
-        new_game.n_baselines = -1;
+        games[game_idx] = malloc(sizeof(game_session));
+
+        (games[game_idx]->players)[0] = malloc(sizeof(ingame_client));
+        (games[game_idx]->players)[0]->client_idx = client_idx;
+        (games[game_idx]->players)[0]->state = CONNECTED;
+        (games[game_idx]->players)[0]->score = 0;
+        strcpy((games[game_idx]->players)[0]->nickname, clients[client_idx]->nickname);
+
+        games[game_idx]->game_idx = game_idx;
+        games[game_idx]->time = -1;
+        games[game_idx]->n_winlines = -1;
+        games[game_idx]->n_baselines = -1;
         for(int i = 1; i < 8; i++){
-            new_game.players[i] = NULL;
+            games[game_idx]->players[i] = NULL;
         }
 
         if(0 <= clients[client_idx]->game_idx){
@@ -319,7 +331,7 @@ void sfunc_battle(int argc, char* argv[], int client_idx){
                 strcpy(send_msg.msg, "Invalid game mode selected.");
                 client_msg(send_msg, client_idx);
             }else{
-                new_game.game_type = strtol(argv[1], NULL, 10);
+                games[game_idx]->game_type = strtol(argv[1], NULL, 10);
                 valid_game_mode = 1;
             }
 
@@ -333,7 +345,7 @@ void sfunc_battle(int argc, char* argv[], int client_idx){
                         char* rhs = strtok(argv[i], "=");
                         rhs = strtok(NULL, "=");
 
-                        if(0 < new_game.time){
+                        if(0 < games[game_idx]->time){
                             parsed_correctly = 0;
                             strcpy(send_msg.msg, "Invalid option: time has been defined more than once. Please specify options once.");
                             client_msg(send_msg, client_idx);
@@ -352,7 +364,7 @@ void sfunc_battle(int argc, char* argv[], int client_idx){
                                 client_msg(send_msg, client_idx);
                                 break;
                             }else{
-                                new_game.time = time;
+                                games[game_idx]->time = time;
                             }
                         }
                     }
@@ -360,7 +372,7 @@ void sfunc_battle(int argc, char* argv[], int client_idx){
                         char* rhs = strtok(argv[i], "=");
                         rhs = strtok(NULL, "=");
 
-                        if(0 <= new_game.n_baselines){
+                        if(0 <= games[game_idx]->n_baselines){
                             parsed_correctly = 0;
                             strcpy(send_msg.msg, "Invalid option: baselines has been defined more than once. Please specify options once.");
                             client_msg(send_msg, client_idx);
@@ -379,7 +391,7 @@ void sfunc_battle(int argc, char* argv[], int client_idx){
                                 client_msg(send_msg, client_idx);
                                 break;
                             }else{
-                                new_game.n_baselines = baselines;
+                                games[game_idx]->n_baselines = baselines;
                             }
                         }
                     }
@@ -387,7 +399,7 @@ void sfunc_battle(int argc, char* argv[], int client_idx){
                         char* rhs = strtok(argv[i], "=");
                         rhs = strtok(NULL, "=");
 
-                        if(0 <= new_game.n_winlines){
+                        if(0 <= games[game_idx]->n_winlines){
                             parsed_correctly = 0;
                             strcpy(send_msg.msg, "Invalid option: winlines has been defined more than once. Please specify options once.");
                             client_msg(send_msg, client_idx);
@@ -406,7 +418,7 @@ void sfunc_battle(int argc, char* argv[], int client_idx){
                                 client_msg(send_msg, client_idx);
                                 break;
                             }else{
-                                new_game.n_winlines = winlines;
+                                games[game_idx]->n_winlines = winlines;
                             }
                         }
                     }
@@ -439,7 +451,7 @@ void sfunc_battle(int argc, char* argv[], int client_idx){
                         }else{
                             int already_added = 0;
                             for(int k = 0; k < n_players; k++){
-                                if(strcmp(argv[i], new_game.players[k]->nickname) == 0){
+                                if(strcmp(argv[i], games[game_idx]->players[k]->nickname) == 0){
                                     already_added = 1;
                                     break;
                                 }
@@ -454,12 +466,12 @@ void sfunc_battle(int argc, char* argv[], int client_idx){
                                 break;
                             }
                             else{
-                                (new_game.players)[n_players] = malloc(sizeof(ingame_client));
-                                (new_game.players)[n_players]->state = REJECTED;
-                                (new_game.players)[n_players]->score = 0;
-                                (new_game.players)[n_players]->client_idx = opponent_idx;
-                                strcpy((new_game.players)[n_players]->nickname, argv[i]);
-                                
+                                (games[game_idx]->players)[n_players] = malloc(sizeof(ingame_client));
+                                (games[game_idx]->players)[n_players]->state = REJECTED;
+                                (games[game_idx]->players)[n_players]->score = 0;
+                                (games[game_idx]->players)[n_players]->client_idx = opponent_idx;
+                                strcpy((games[game_idx]->players)[n_players]->nickname, argv[i]);
+
                                 n_players++;
                             }
                         }
@@ -469,32 +481,17 @@ void sfunc_battle(int argc, char* argv[], int client_idx){
         }
 
         if(parsed_correctly){
-            if(new_game.n_baselines < 0){
-                new_game.n_baselines = BASELINES_DEFAULT;
+            if(games[game_idx]->n_baselines < 0){
+                games[game_idx]->n_baselines = BASELINES_DEFAULT;
             }
 
-            if(new_game.n_winlines < 0){
-                new_game.n_winlines = WINLINES_DEFAULT;
+            if(games[game_idx]->n_winlines < 0){
+                games[game_idx]->n_winlines = WINLINES_DEFAULT;
             }
 
-            if(new_game.time < 0){
-                new_game.time = TIME_DEFAULT;
+            if(games[game_idx]->time < 0){
+                games[game_idx]->time = TIME_DEFAULT;
             }
-
-            int game_idx = 0;
-            for(; game_idx < MAX_CLIENTS; game_idx++){
-                pthread_mutex_lock(gameMutexes + game_idx);
-                if(games[game_idx] == NULL){
-                    break;
-                }
-                else{
-                    pthread_mutex_unlock(gameMutexes + game_idx);
-                }
-            }
-
-            games[game_idx] = malloc(sizeof(game_session));
-            new_game.game_idx = game_idx;
-            games[game_idx] = &new_game;
 
             if(pthread_create(game_threads + game_idx, NULL, service_game_request, (void*) &game_idx) != 0){
                 mrerror("Error while creating thread to service newly created game session");
@@ -505,6 +502,12 @@ void sfunc_battle(int argc, char* argv[], int client_idx){
             pthread_mutex_lock(clientMutexes + client_idx);
             clients[client_idx]->game_idx = game_idx;
             pthread_mutex_unlock(clientMutexes + client_idx);
+        }
+        else{
+            free(games[game_idx]);
+            games[game_idx] = NULL;
+
+            pthread_mutex_unlock(gameMutexes + game_idx);
         }
     }
 }
@@ -593,7 +596,7 @@ void sfunc_ignore(int argc, char* argv[], int client_idx){
                 strcat(send_msg.msg, ".");
 
                 for(int i = 0; i < 8; i++){
-                    if(((games[game_idx]->players)[i] != NULL) && ((games[game_idx]->players)[i]->client_idx == client_idx)){
+                    if(((games[game_idx]->players)[i] != NULL) && ((games[game_idx]->players)[i]->client_idx != client_idx)){
                         client_msg(send_msg, (games[game_idx]->players)[i]->client_idx);
                     }
                 }
