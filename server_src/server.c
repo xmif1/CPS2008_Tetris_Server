@@ -12,6 +12,12 @@ int main(){
         pthread_mutex_init(&gameMutexes[i], NULL);
     }
 
+    struct sigaction sint;
+    sint.sa_handler = sigint_handler;
+    sigemptyset(&(sint.sa_mask));
+    sigaddset(&(sint.sa_mask), SIGINT);
+    sigaction(SIGINT, &sint, NULL);
+
     // Main loop listening for client connections, ready to accept them as sufficient resources become available.
     while(1){
         struct sockaddr_in clientaddrIn;
@@ -23,6 +29,30 @@ int main(){
         }
 
         add_client(client_fd, clientaddrIn);
+    }
+}
+
+void sigint_handler(){
+    if(sigint_raised < 1){
+        sigint_raised++;
+
+        printf("\nServer is shutting down...disconnecting clients...\n");
+
+        for(int i = 0; i < MAX_CLIENTS; i++){
+            if(clients[i] != NULL){
+                pthread_cancel(service_threads[i]);
+                pthread_join(service_threads[i], NULL);
+
+                close(clients[i]->client_fd);
+
+                free(clients[i]);
+                clients[i] = NULL;
+                n_clients--;
+            }
+        }
+
+        printf("All clients disconnected...goodbye!\n");
+        kill(getpid(), SIGINT);
     }
 }
 
@@ -88,6 +118,13 @@ void add_client(int client_fd, struct sockaddr_in clientaddrIn){
         n_clients++;
 
         pthread_mutex_unlock(clientMutexes + i);
+
+        msg joined_msg;
+        joined_msg.msg_type = CHAT;
+        strcpy(joined_msg.msg, "Connected...your nickname is ");
+        strcat(joined_msg.msg, nickname);
+        strcat(joined_msg.msg, ".");
+        client_msg(joined_msg, i);
     }else{
         msg err_msg;
         err_msg.msg_type = CHAT;
@@ -502,6 +539,9 @@ void sfunc_battle(int argc, char* argv[], int client_idx){
             pthread_mutex_lock(clientMutexes + client_idx);
             clients[client_idx]->game_idx = game_idx;
             pthread_mutex_unlock(clientMutexes + client_idx);
+
+            strcpy(send_msg.msg, "Game invite sent to the other players...waiting for their response....");
+            client_msg(send_msg, client_idx);
         }
         else{
             free(games[game_idx]);
@@ -541,6 +581,9 @@ void sfunc_go(int argc, char* argv[], int client_idx) {
                         clients[client_idx]->game_idx = game_idx;
                         (games[game_idx]->players)[i]->state = CONNECTED;
                         pthread_mutex_unlock(clientMutexes + client_idx);
+
+                        strcpy(send_msg.msg, "You have successfully joined the game session.");
+                        client_msg(send_msg, client_idx);
                     }else{
                         pthread_mutex_unlock(clientMutexes + client_idx);
 
@@ -600,6 +643,11 @@ void sfunc_ignore(int argc, char* argv[], int client_idx){
                         client_msg(send_msg, (games[game_idx]->players)[i]->client_idx);
                     }
                 }
+
+                msg send_to_client;
+                send_to_client.msg_type = CHAT;
+                strcpy(send_to_client.msg, "You have successfully declined to join the game session.");
+                client_msg(send_to_client, client_idx);
             }
         }
 

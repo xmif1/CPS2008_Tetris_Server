@@ -5,6 +5,7 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <pthread.h>
+#include <signal.h>
 #include <unistd.h>
 #include <string.h>
 #include <stdlib.h>
@@ -63,6 +64,7 @@ int handle_score_update_msg(char chat_msg[MSG_SIZE], int client_idx);
 int handle_finished_game_msg(char chat_msg[MSG_SIZE], int client_idx);
 void* service_client(void* arg);
 void* service_game_request(void* arg);
+void sigint_handler();
 void gen_nickname(char nickname[UNAME_LEN]);
 void add_client(int client_fd, struct sockaddr_in clientaddrIn);
 void remove_client(int client_idx);
@@ -85,6 +87,9 @@ void yellow();
 void reset();
 
 // GLOBALS
+
+int sigint_raised = 0;
+
 client* clients[MAX_CLIENTS]; int n_clients = 0;
 game_session* games[MAX_CLIENTS];
 pthread_t service_threads[MAX_CLIENTS];
