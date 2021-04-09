@@ -182,10 +182,10 @@ void* service_client(void* arg){
     int msg_type, tbr, recv_bytes, recv_str_len;
     char header[HEADER_SIZE];
 
-    while((recv_bytes = recv(client_fd, (char*) &header, HEADER_SIZE, 0)) > 0){
+    while((recv_bytes = recv(client_fd, (void*) &header, HEADER_SIZE, 0)) > 0){
         for(tbr = recv_bytes; tbr < HEADER_SIZE; tbr += recv_bytes){
             if((recv_bytes = recv(client_fd, (void*) (&header + tbr), recv_str_len - tbr, 0)) < 0){
-                break_while_loop = 1;
+                break_while_loop= 1;
                 break;
             }
         }
