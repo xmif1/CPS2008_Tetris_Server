@@ -13,10 +13,16 @@ int main(){
     }
 
     struct sigaction sint;
-    sint.sa_handler = sigint_handler;
+    sint.sa_handler = sig_handler;
     sigemptyset(&(sint.sa_mask));
     sigaddset(&(sint.sa_mask), SIGINT);
     sigaction(SIGINT, &sint, NULL);
+
+    struct sigaction sterm;
+    sint.sa_handler = sig_handler;
+    sigemptyset(&(sterm.sa_mask));
+    sigaddset(&(sterm.sa_mask), SIGTERM);
+    sigaction(SIGINT, &sterm, NULL);
 
     // Main loop listening for client connections, ready to accept them as sufficient resources become available.
     while(1){
@@ -32,9 +38,9 @@ int main(){
     }
 }
 
-void sigint_handler(){
-    if(sigint_raised < 1){
-        sigint_raised++;
+void sig_handler(){
+    if(sig_raised < 1){
+        sig_raised++;
 
         printf("\nServer is shutting down...disconnecting clients...\n");
 
@@ -172,17 +178,51 @@ void* service_client(void* arg){
     int client_fd = ((client*) arg)->client_fd;
     int client_idx = ((client*) arg)->client_idx;
 
-    int break_loop = 0;
-    msg recv_msg;
-    while(recv(client_fd, (msg*) &recv_msg, sizeof(msg), 0) > 0){
-        switch(recv_msg.msg_type){
-            case CHAT: break_loop = handle_chat_msg(recv_msg.msg, client_idx); break;
-            case SCORE_UPDATE: break_loop = handle_score_update_msg(recv_msg.msg, client_idx); break;
-            case FINISHED_GAME: break_loop = handle_finished_game_msg(recv_msg.msg, client_idx); break;
-            default: break_loop = 0;
+    int break_while_loop = 0;
+    int msg_type, tbr, recv_bytes, recv_str_len;
+    char header[HEADER_SIZE];
+
+    while((recv_bytes = recv(client_fd, (char*) &header, HEADER_SIZE, 0)) > 0){
+        for(tbr = recv_bytes; tbr < HEADER_SIZE; tbr += recv_bytes){
+            if((recv_bytes = recv(client_fd, (void*) (&header + tbr), recv_str_len - tbr, 0)) < 0){
+                break_while_loop = 1;
+                break;
+            }
         }
 
-        if(break_loop){
+        if(break_while_loop){
+            break;
+        }
+
+        char* token = strtok(header, "::");
+        recv_str_len = strtol(token, NULL, 10);
+
+        token = strtok(NULL, "::");
+        msg_type = strtol(token, NULL, 10);
+
+        char* recv_str = malloc(recv_str_len);
+
+        for(tbr = 0; tbr < recv_str_len; tbr += recv_bytes){
+            if((recv_bytes = recv(client_fd, (void*) recv_str + tbr, recv_str_len - tbr, 0)) < 0){
+                break_while_loop = 1;
+                break;
+            }
+        }
+
+        if(break_while_loop){
+            break;
+        }
+
+        switch(msg_type){
+            case CHAT: break_while_loop = handle_chat_msg(recv_str, client_idx); break;
+            case SCORE_UPDATE: break_while_loop = handle_score_update_msg(recv_str, client_idx); break;
+            case FINISHED_GAME: break_while_loop = handle_finished_game_msg(recv_str, client_idx); break;
+            default: break_while_loop = 0;
+        }
+
+        free(recv_str);
+
+        if(break_while_loop){
             break;
         }
     }
@@ -661,35 +701,74 @@ void sfunc_help(int argc, char* argv[], int client_idx){}
 void sfunc_msg(int argc, char* argv[], int client_idx){
     pthread_mutex_lock(clientMutexes + client_idx);
     if(clients[client_idx] != NULL){
-        char nickname[UNAME_LEN] = {0};
-        strcpy(nickname, clients[client_idx]->nickname);
+        int msg_len = strlen(clients[client_idx]->nickname) + strlen(argv[0]) + 3;
 
-        for(int i = 0; i < MAX_CLIENTS; i++){
-            if(i != client_idx){
-                pthread_mutex_lock(clientMutexes + i);
+        if(MSG_LEN_DIGITS < ((int) floor(log10(msg_len)) + 1)){
+            msg err_msg;
+            err_msg.msg_type = CHAT;
+            strcpy(err_msg.msg, "The text input you have provided is too long to be processed.");
+
+            pthread_mutex_unlock(clientMutexes + client_idx);
+            client_msg(err_msg, client_idx);
+
+        }else{
+            int str_to_send_len = HEADER_SIZE + msg_len;
+            char header[HEADER_SIZE];
+            char* str_to_send = malloc(str_to_send_len);
+
+            if(str_to_send == NULL){
+                mrerror("Failed to allocate memory for message send");
             }
 
-            if(clients[i] != NULL){
-                msg send_msg;
-                send_msg.msg_type = CHAT;
-                strcpy(send_msg.msg, nickname);
-                strcat(send_msg.msg, ">\t");
-                strcat(send_msg.msg, argv[0]);
+            int i = 0;
+            for(; i < MSG_LEN_DIGITS - ((int) floor(log10(msg_len)) + 1); i++){
+                header[i] = '0';
+            }
 
-                if(send(clients[i]->client_fd, (void *) &send_msg, sizeof(msg), 0) < 0){
-                    pthread_cancel(service_threads[i]);
-                    pthread_mutex_unlock(clientMutexes + i);
-                    remove_client(i);
-                    pthread_mutex_lock(clientMutexes + i);
+            sprintf(header + i, "%d", msg_len);
+            strcat(header, "::");
+            sprintf(header + MSG_LEN_DIGITS + 2, "%d", CHAT);
+            strcat(header, "::");
+
+            strcpy(str_to_send, header);
+            strcat(str_to_send, clients[client_idx]->nickname);
+            strcat(str_to_send, ">\t");
+            strcat(str_to_send, argv[0]);
+            str_to_send[str_to_send_len-1] = '\0'; // ensure null terminated
+
+            for(int j = 0; j < MAX_CLIENTS; j++){
+                if(j != client_idx){
+                    pthread_mutex_lock(clientMutexes + j);
+                }
+
+                int fail_flag = 0;
+                if(clients[j] != NULL){
+                    int tbs; // tbs = total bytes sent
+                    int sent_bytes;
+
+                    for(tbs = 0; tbs < str_to_send_len; tbs += sent_bytes){
+                        if((sent_bytes = send(clients[j]->client_fd, (void*) str_to_send + tbs, str_to_send_len - tbs, 0)) < 0){
+                            pthread_cancel(service_threads[j]);
+                            pthread_mutex_unlock(clientMutexes + j);
+                            remove_client(j);
+                            fail_flag = 1;
+                            break;
+                        }
+                    }
+                }
+
+                if(j != client_idx && fail_flag != 1){
+                    pthread_mutex_unlock(clientMutexes + j);
                 }
             }
 
-            if(i != client_idx){
-                pthread_mutex_unlock(clientMutexes + i);
-            }
+            free(str_to_send);
+
+            pthread_mutex_unlock(clientMutexes + client_idx);
         }
+    }else{
+        pthread_mutex_unlock(clientMutexes + client_idx);
     }
-    pthread_mutex_unlock(clientMutexes + client_idx);
 }
 
 /* --------- UTILITY FUNCTIONS --------- */
@@ -730,17 +809,50 @@ int nickname_uniqueQ(char nickname[UNAME_LEN]){
 }
 
 void client_msg(msg send_msg, int client_idx){
+    int msg_len = strlen(send_msg.msg) + 1;
+    int str_to_send_len = HEADER_SIZE + msg_len;
+    char header[HEADER_SIZE];
+    char* str_to_send = malloc(str_to_send_len);
+
+    if(str_to_send == NULL){
+        mrerror("Failed to allocate memory for message send");
+    }
+
+    int i = 0;
+    for(; i < MSG_LEN_DIGITS - ((int) floor(log10(msg_len)) + 1); i++){
+        header[i] = '0';
+    }
+
+    sprintf(header + i, "%d", msg_len);
+    strcat(header, "::");
+    sprintf(header + MSG_LEN_DIGITS + 2, "%d", send_msg.msg_type);
+    strcat(header, "::");
+
+    strcpy(str_to_send, header);
+    strcat(str_to_send, send_msg.msg);
+    str_to_send[str_to_send_len-1] = '\0'; // ensure null terminated
+
     pthread_mutex_lock(clientMutexes + client_idx);
-    if((clients[client_idx] != NULL) && (send(clients[client_idx]->client_fd, (void*) &send_msg, sizeof(msg), 0) < 0)){
-        pthread_cancel(service_threads[client_idx]);
-        pthread_mutex_unlock(clientMutexes + client_idx);
-        remove_client(client_idx);
+    if(clients[client_idx] != NULL){
+        int tbs; // tbs = total bytes sent
+        int sent_bytes;
+
+        for(tbs = 0; tbs < str_to_send_len; tbs += sent_bytes){
+            if((sent_bytes = send(clients[client_idx]->client_fd, (void*) str_to_send + tbs, str_to_send_len - tbs, 0)) < 0){
+                pthread_cancel(service_threads[client_idx]);
+                pthread_mutex_unlock(clientMutexes + client_idx);
+                remove_client(client_idx);
+                break;
+            }
+        }
     }else{
         pthread_mutex_unlock(clientMutexes + client_idx);
     }
+
+    free(str_to_send);
 }
 
-int handle_chat_msg(char chat_msg[MSG_SIZE], int client_idx){
+int handle_chat_msg(char* chat_msg, int client_idx){
     if(chat_msg[0] == '!'){
         char *token = strtok(chat_msg, " ");
         char **token_list = malloc(0);
@@ -789,10 +901,10 @@ int handle_chat_msg(char chat_msg[MSG_SIZE], int client_idx){
     return 0;
 }
 
-int handle_score_update_msg(char chat_msg[MSG_SIZE], int client_idx){
+int handle_score_update_msg(char* chat_msg, int client_idx){
     return 1;
 }
-int handle_finished_game_msg(char chat_msg[MSG_SIZE], int client_idx){
+int handle_finished_game_msg(char* chat_msg, int client_idx){
     return 1;
 }
 
@@ -803,7 +915,7 @@ void mrerror(char* err_msg){
     red();
     perror(err_msg);
     reset();
-    exit(EXIT_FAILURE);
+    raise(SIGTERM);
 }
 
 /* Silent Mr. Error: A simple function to handle errors (mostly a wrapper to perror), without termination.*/

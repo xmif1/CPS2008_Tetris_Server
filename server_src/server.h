@@ -20,7 +20,8 @@
 #define SDOMAIN AF_INET // or AF_INET6, correspondingly using netinet/in.h
 #define TYPE SOCK_STREAM
 #define MAX_CLIENTS 20
-#define MSG_SIZE 1024
+#define MSG_LEN_DIGITS 4
+#define HEADER_SIZE (MSG_LEN_DIGITS + 5) // '<msg_len>::<msg_type>::' where msg_len is of size MSG_LEN_DIGITS chars and msg_type is 1 char
 #define UNAME_LEN 32
 
 // STRUCTS
@@ -53,18 +54,18 @@ typedef struct{
 
 typedef struct{
     int msg_type;
-    char msg[MSG_SIZE];
+    char* msg;
 }msg;
 
 // FUNC DEFNS
 int server_init();
 int nickname_uniqueQ(char nickname[UNAME_LEN]);
-int handle_chat_msg(char chat_msg[MSG_SIZE], int client_idx);
-int handle_score_update_msg(char chat_msg[MSG_SIZE], int client_idx);
-int handle_finished_game_msg(char chat_msg[MSG_SIZE], int client_idx);
+int handle_chat_msg(char* chat_msg, int client_idx);
+int handle_score_update_msg(char* chat_msg, int client_idx);
+int handle_finished_game_msg(char* chat_msg, int client_idx);
 void* service_client(void* arg);
 void* service_game_request(void* arg);
-void sigint_handler();
+void sig_handler();
 void gen_nickname(char nickname[UNAME_LEN]);
 void add_client(int client_fd, struct sockaddr_in clientaddrIn);
 void remove_client(int client_idx);
@@ -88,7 +89,7 @@ void reset();
 
 // GLOBALS
 
-int sigint_raised = 0;
+int sig_raised = 0;
 
 client* clients[MAX_CLIENTS]; int n_clients = 0;
 game_session* games[MAX_CLIENTS];
