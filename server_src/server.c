@@ -126,6 +126,11 @@ void add_client(int client_fd, struct sockaddr_in clientaddrIn){
         pthread_mutex_unlock(clientMutexes + i);
 
         msg joined_msg;
+        joined_msg.msg = malloc(32 + UNAME_LEN);
+        if(joined_msg.msg == NULL){
+            mrerror("Error encountered while allocating memory");
+        }
+
         joined_msg.msg_type = CHAT;
         strcpy(joined_msg.msg, "Connected...your nickname is ");
         strcat(joined_msg.msg, nickname);
@@ -133,6 +138,11 @@ void add_client(int client_fd, struct sockaddr_in clientaddrIn){
         client_msg(joined_msg, i);
     }else{
         msg err_msg;
+        err_msg.msg = malloc(80);
+        if(err_msg.msg == NULL){
+            mrerror("Error encountered while allocating memory");
+        }
+
         err_msg.msg_type = CHAT;
         strcpy(err_msg.msg, "Maximum number of clients acheived: unable to connect at the moment.");
 
@@ -148,6 +158,11 @@ void remove_client(int client_idx){
     pthread_mutex_lock(clientMutexes + client_idx);
     if(clients[client_idx] != NULL){
         msg send_msg;
+        send_msg.msg = malloc(32 + UNAME_LEN);
+        if(send_msg.msg == NULL){
+            mrerror("Error encountered while allocating memory");
+        }
+
         send_msg.msg_type = CHAT;
         strcpy(send_msg.msg, "Player ");
         strcat(send_msg.msg, clients[client_idx]->nickname);
@@ -237,6 +252,11 @@ void* service_game_request(void* arg){
     pthread_mutex_lock(gameMutexes + game_idx);
     if(games[game_idx] != NULL){
         msg request_msg;
+        request_msg.msg = malloc(256 + 9*UNAME_LEN);
+        if(request_msg.msg == NULL){
+            mrerror("Error encountered while allocating memory");
+        }
+
         request_msg.msg_type = CHAT;
         strcpy(request_msg.msg, "Player ");
         strcat(request_msg.msg, (games[game_idx]->players)[0]->nickname);
@@ -300,6 +320,11 @@ void* service_game_request(void* arg){
         }
 
         msg send_msg;
+        send_msg.msg = malloc(80);
+        if(send_msg.msg == NULL){
+            mrerror("Error encountered while allocating memory");
+        }
+
         send_msg.msg_type = CHAT;
         if(n_players == 1){
             int client_idx = (games[game_idx]->players)[0]->client_idx;
@@ -335,6 +360,11 @@ void sfunc_leaderboard(int argc, char* argv[], int client_idx){}
 
 void sfunc_players(int argc, char* argv[], int client_idx){
     msg send_msg;
+    send_msg.msg = malloc(16 + MAX_CLIENTS*UNAME_LEN);
+    if(send_msg.msg == NULL){
+        mrerror("Error encountered while allocating memory");
+    }
+
     send_msg.msg_type = CHAT;
     strcpy(send_msg.msg, "Waiting Players:");
 
@@ -354,7 +384,13 @@ void sfunc_playerstats(int argc, char* argv[], int client_idx){}
 
 void sfunc_battle(int argc, char* argv[], int client_idx){
     int parsed_correctly = 1;
+
     msg send_msg;
+    send_msg.msg = malloc(128 + UNAME_LEN);
+    if(send_msg.msg == NULL){
+        mrerror("Error encountered while allocating memory");
+    }
+
     send_msg.msg_type = CHAT;
 
     pthread_mutex_lock(clientMutexes + client_idx);
@@ -597,6 +633,11 @@ void sfunc_chill(int argc, char* argv[], int client_idx){}
 
 void sfunc_go(int argc, char* argv[], int client_idx) {
     msg send_msg;
+    send_msg.msg = malloc(64);
+    if(send_msg.msg == NULL){
+        mrerror("Error encountered while allocating memory");
+    }
+
     send_msg.msg_type = CHAT;
 
     if(argc < 2){
@@ -645,6 +686,11 @@ void sfunc_go(int argc, char* argv[], int client_idx) {
 
 void sfunc_ignore(int argc, char* argv[], int client_idx){
     msg send_msg;
+    send_msg.msg = malloc(64 + UNAME_LEN);
+    if(send_msg.msg == NULL){
+        mrerror("Error encountered while allocating memory");
+    }
+
     send_msg.msg_type = CHAT;
 
     if(argc < 2){
@@ -685,6 +731,11 @@ void sfunc_ignore(int argc, char* argv[], int client_idx){
                 }
 
                 msg send_to_client;
+                send_to_client.msg = malloc(64);
+                if(send_msg.msg == NULL){
+                    mrerror("Error encountered while allocating memory");
+                }
+
                 send_to_client.msg_type = CHAT;
                 strcpy(send_to_client.msg, "You have successfully declined to join the game session.");
                 client_msg(send_to_client, client_idx);
@@ -705,6 +756,11 @@ void sfunc_msg(int argc, char* argv[], int client_idx){
 
         if(MSG_LEN_DIGITS < ((int) floor(log10(msg_len)) + 1)){
             msg err_msg;
+            err_msg.msg = malloc(64);
+            if(err_msg.msg == NULL){
+                mrerror("Error encountered while allocating memory");
+            }
+
             err_msg.msg_type = CHAT;
             strcpy(err_msg.msg, "The text input you have provided is too long to be processed.");
 
@@ -869,6 +925,11 @@ int handle_chat_msg(char* chat_msg, int client_idx){
                 smrerror("Error during tokenisation of client message");
 
                 msg err_msg;
+                err_msg.msg = malloc(64);
+                if(err_msg.msg == NULL){
+                    mrerror("Error encountered while allocating memory");
+                }
+
                 err_msg.msg_type = CHAT;
                 strcpy(err_msg.msg, "Server was unable to process your request. Please try again.");
                 client_msg(err_msg, client_idx);
