@@ -965,6 +965,8 @@ int handle_chat_msg(char* chat_msg, int client_idx){
                 sfunc_msg(1, (char *[]) {chat_msg}, client_idx);
             }
         }
+
+        free(token_list);
     }else{
         sfunc_msg(1, (char*[]) {chat_msg}, client_idx);
     }
@@ -973,10 +975,122 @@ int handle_chat_msg(char* chat_msg, int client_idx){
 }
 
 int handle_score_update_msg(char* chat_msg, int client_idx){
-    return 1;
+    pthread_mutex_lock(clientMutexes + client_idx);
+    if(clients[client_idx] != NULL){
+        pthread_mutex_lock(gameMutexes + clients[client_idx]->game_idx);
+        for(int i = 0; i < 8; i++){
+            if((games[clients[client_idx]->game_idx]->players)[i]->client_idx == client_idx){
+                (games[clients[client_idx]->game_idx]->players)[i]->score = strtol(chat_msg, NULL, 10);
+            }
+        }
+        pthread_mutex_unlock(gameMutexes + clients[client_idx]->game_idx);
+    }
+    pthread_mutex_unlock(clientMutexes + client_idx);
+
+    return 0;
 }
 int handle_finished_game_msg(char* chat_msg, int client_idx){
-    return 1;
+    int game_idx = -1;
+
+    pthread_mutex_lock(clientMutexes + client_idx);
+    if(clients[client_idx] != NULL){
+        game_idx = clients[client_idx]->game_idx;
+        pthread_mutex_lock(gameMutexes + game_idx);
+        for(int i = 0; i < 8; i++){
+            if((games[game_idx]->players)[i] != NULL && (games[game_idx]->players)[i]->client_idx == client_idx){
+                (games[game_idx]->players)[i]->state = FINISHED;
+            }
+        }
+        pthread_mutex_unlock(gameMutexes + game_idx);
+    }
+    pthread_mutex_unlock(clientMutexes + client_idx);
+
+    if(game_idx > 0){
+        pthread_mutex_lock(gameMutexes + game_idx);
+
+        int n_players, n_finished_players;
+        n_players = n_finished_players = 0;
+
+        for(int i = 0; i < 8; i++){
+            if((games[game_idx]->players)[i] != NULL){
+                n_players++;
+
+                if((games[game_idx]->players)[i]->state == FINISHED){
+                    n_finished_players++;
+                }
+            }
+        }
+
+        if(n_finished_players == n_players){
+            msg finished_msg;
+            finished_msg.msg_type = CHAT;
+            finished_msg.msg = malloc(256 + 3*UNAME_LEN);
+            if(finished_msg.msg == NULL){
+                mrerror("Error encountered while allocating memory");
+            }
+            strcpy(finished_msg.msg, "All players have completed the game! The winner is ");
+
+            int best_score1, best_score2, best_score3, best_player1, best_player2, best_player3;
+            best_score1 = best_score2 = best_score3 = 0; best_player1 = best_player2 = best_player3 = -1;
+
+            for(int i = 0; i < 8; i++){
+                if((games[game_idx]->players)[i] != NULL && (games[game_idx]->players)[i]->score >= best_score1){
+                    best_score1 = (games[game_idx]->players)[i]->score;
+                    best_player1 = i;
+                }
+            }
+
+            strcat(finished_msg.msg, (games[game_idx]->players)[best_player1]->nickname);
+            strcat(finished_msg.msg, ", with a score of ");
+            sprintf(finished_msg.msg, "%d", (games[game_idx]->players)[best_player1]->score);
+            strcat(finished_msg.msg, " points.\n");
+
+            for(int i = 0; i < 8; i++){
+                if(i != best_player1 && (games[game_idx]->players)[i] != NULL &&
+                (games[game_idx]->players)[i]->score >= best_score2){
+                    best_score2 = (games[game_idx]->players)[i]->score;
+                    best_player2 = i;
+                }
+            }
+
+            if(n_players >= 3){
+                for(int i = 0; i < 8; i++){
+                    if(i != best_player1 && i != best_player2 && (games[game_idx]->players)[i] != NULL &&
+                    (games[game_idx]->players)[i]->score >= best_score2){
+                        best_score3 = (games[game_idx]->players)[i]->score;
+                        best_player3 = i;
+                    }
+                }
+
+                strcat(finished_msg.msg, "The runners up are:\n\t");
+                strcat(finished_msg.msg, (games[game_idx]->players)[best_player2]->nickname);
+                strcat(finished_msg.msg, ", with a score of ");
+                sprintf(finished_msg.msg, "%d", (games[game_idx]->players)[best_player2]->score);
+                strcat(finished_msg.msg, " points.\n\t");
+                strcat(finished_msg.msg, (games[game_idx]->players)[best_player3]->nickname);
+                strcat(finished_msg.msg, ", with a score of ");
+                sprintf(finished_msg.msg, "%d", (games[game_idx]->players)[best_player3]->score);
+                strcat(finished_msg.msg, " points.");
+            }else{
+                strcat(finished_msg.msg, "Opponent ");
+                strcat(finished_msg.msg, (games[game_idx]->players)[best_player2]->nickname);
+                strcat(finished_msg.msg, " got a score of ");
+                sprintf(finished_msg.msg, "%d", (games[game_idx]->players)[best_player2]->score);
+                strcat(finished_msg.msg, " points.");
+            }
+
+            for(int i = 0; i < 8; i++){
+                if((games[game_idx]->players)[i] != NULL){
+                    client_msg(finished_msg, (games[game_idx]->players)[i]->client_idx);
+                }
+            }
+
+        }
+
+        pthread_mutex_unlock(gameMutexes + game_idx);
+    }
+
+    return 0;
 }
 
 /* ----------- ERROR HANDLING ----------- */
