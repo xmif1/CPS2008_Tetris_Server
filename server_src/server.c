@@ -195,11 +195,11 @@ void* service_client(void* arg){
 
     int break_while_loop = 0;
     int msg_type, tbr, recv_bytes, recv_str_len;
-    char header[HEADER_SIZE];
+    char header[HEADER_SIZE]; header[HEADER_SIZE - 1] = '\0';
 
-    while((recv_bytes = recv(client_fd, (void*) &header, HEADER_SIZE, 0)) > 0){
-        for(tbr = recv_bytes; tbr < HEADER_SIZE; tbr += recv_bytes){
-            if((recv_bytes = recv(client_fd, (void*) (&header + tbr), recv_str_len - tbr, 0)) < 0){
+    while((recv_bytes = recv(client_fd, (void*) &header, HEADER_SIZE - 1, 0)) > 0){
+        for(tbr = recv_bytes; tbr < HEADER_SIZE - 1; tbr += recv_bytes){
+            if((recv_bytes = recv(client_fd, (void*) (&header + tbr), HEADER_SIZE - tbr - 1, 0)) < 0){
                 break_while_loop= 1;
                 break;
             }
@@ -216,6 +216,9 @@ void* service_client(void* arg){
         msg_type = strtol(token, NULL, 10);
 
         char* recv_str = malloc(recv_str_len);
+        if(recv_str == NULL){
+            mrerror("Error while allocating memory");
+        }
 
         for(tbr = 0; tbr < recv_str_len; tbr += recv_bytes){
             if((recv_bytes = recv(client_fd, (void*) recv_str + tbr, recv_str_len - tbr, 0)) < 0){
@@ -768,7 +771,7 @@ void sfunc_msg(int argc, char* argv[], int client_idx){
             client_msg(err_msg, client_idx);
 
         }else{
-            int str_to_send_len = HEADER_SIZE + msg_len;
+            int str_to_send_len = HEADER_SIZE + msg_len - 1;
             char header[HEADER_SIZE];
             char* str_to_send = malloc(str_to_send_len);
 
@@ -851,14 +854,15 @@ void gen_nickname(char nickname[UNAME_LEN]){
 int nickname_uniqueQ(char nickname[UNAME_LEN]){
     for(int i = 0; i < MAX_CLIENTS; i++){
         pthread_mutex_lock(clientMutexes + i);
-        if(!clients[i]){
+        if(clients[i] == NULL){
             pthread_mutex_unlock(clientMutexes + i);
         }
         else if(strcmp(nickname, clients[i]->nickname) == 0){
             pthread_mutex_unlock(clientMutexes + i);
             return 1;
+        }else{
+            pthread_mutex_unlock(clientMutexes + i);
         }
-        pthread_mutex_unlock(clientMutexes + i);
     }
 
     return 0;
@@ -866,7 +870,7 @@ int nickname_uniqueQ(char nickname[UNAME_LEN]){
 
 void client_msg(msg send_msg, int client_idx){
     int msg_len = strlen(send_msg.msg) + 1;
-    int str_to_send_len = HEADER_SIZE + msg_len;
+    int str_to_send_len = HEADER_SIZE + msg_len - 1;
     char header[HEADER_SIZE];
     char* str_to_send = malloc(str_to_send_len);
 
@@ -892,14 +896,20 @@ void client_msg(msg send_msg, int client_idx){
     if(clients[client_idx] != NULL){
         int tbs; // tbs = total bytes sent
         int sent_bytes;
+        int fail_flag = 0;
 
         for(tbs = 0; tbs < str_to_send_len; tbs += sent_bytes){
             if((sent_bytes = send(clients[client_idx]->client_fd, (void*) str_to_send + tbs, str_to_send_len - tbs, 0)) < 0){
                 pthread_cancel(service_threads[client_idx]);
                 pthread_mutex_unlock(clientMutexes + client_idx);
                 remove_client(client_idx);
+                fail_flag = 1;
                 break;
             }
+        }
+
+        if(!fail_flag){
+            pthread_mutex_unlock(clientMutexes + client_idx);
         }
     }else{
         pthread_mutex_unlock(clientMutexes + client_idx);
