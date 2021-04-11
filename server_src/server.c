@@ -157,6 +157,19 @@ void add_client(int client_fd, struct sockaddr_in clientaddrIn){
 void remove_client(int client_idx){
     pthread_mutex_lock(clientMutexes + client_idx);
     if(clients[client_idx] != NULL){
+        close(clients[client_idx]->client_fd);
+
+        int game_idx = clients[client_idx]->game_idx;
+        pthread_mutex_lock(gameMutexes + game_idx);
+        if(game_idx >= 0 && games[game_idx] != NULL){
+            for(int i = 0; i < N_SESSION_PLAYERS; i++){
+                if((games[game_idx]->players)[i]->client_idx == client_idx){
+                    (games[game_idx]->players)[i]->state = DISCONNECTED;
+                }
+            }
+        }
+        pthread_mutex_unlock(gameMutexes + game_idx);
+
         msg send_msg;
         send_msg.msg = malloc(32 + UNAME_LEN);
         if(send_msg.msg == NULL){
@@ -167,8 +180,6 @@ void remove_client(int client_idx){
         strcpy(send_msg.msg, "Player ");
         strcat(send_msg.msg, clients[client_idx]->nickname);
         strcat(send_msg.msg, " has disconnected.");
-
-        close(clients[client_idx]->client_fd);
 
         free(clients[client_idx]);
         clients[client_idx] = NULL;
@@ -255,7 +266,7 @@ void* service_game_request(void* arg){
     pthread_mutex_lock(gameMutexes + game_idx);
     if(games[game_idx] != NULL){
         msg request_msg;
-        request_msg.msg = malloc(256 + 9*UNAME_LEN);
+        request_msg.msg = malloc(256 + (N_SESSION_PLAYERS + 1)*UNAME_LEN);
         if(request_msg.msg == NULL){
             mrerror("Error encountered while allocating memory");
         }
@@ -287,7 +298,7 @@ void* service_game_request(void* arg){
             strcat(request_msg.msg, " minutes.\n\nThe invited players are:");
         }
 
-        for(int i = 0; i < 8; i++){
+        for(int i = 0; i < N_SESSION_PLAYERS; i++){
             if((games[game_idx]->players)[i] != NULL){
                 strcat(request_msg.msg, "\n\t");
                 strcat(request_msg.msg, (games[game_idx]->players)[i]->nickname);
@@ -298,7 +309,7 @@ void* service_game_request(void* arg){
         strcat(request_msg.msg, "\n\nThe game id is: ");
         strcat(request_msg.msg, game_idx_str);
 
-        for(int i = 1; i < 8; i++){
+        for(int i = 1; i < N_SESSION_PLAYERS; i++){
             if((games[game_idx]->players)[i] != NULL){
                 client_msg(request_msg, (games[game_idx]->players)[i]->client_idx);
             }
@@ -312,8 +323,9 @@ void* service_game_request(void* arg){
 
     pthread_mutex_lock(gameMutexes + game_idx);
     if(games[game_idx] != NULL){
-        for(int i = 1; i < 8; i++){
-            if(((games[game_idx]->players)[i] != NULL) && ((games[game_idx]->players)[i]->state == REJECTED)){
+        for(int i = 1; i < N_SESSION_PLAYERS; i++){
+            if(((games[game_idx]->players)[i] != NULL) && ((games[game_idx]->players)[i]->state == REJECTED ||
+            (games[game_idx]->players)[i]->state == DISCONNECTED)){
                 free((games[game_idx]->players)[i]);
                 (games[game_idx]->players)[i] = NULL;
             }
@@ -330,7 +342,12 @@ void* service_game_request(void* arg){
 
         send_msg.msg_type = CHAT;
         if(n_players == 1){
-            int client_idx = (games[game_idx]->players)[0]->client_idx;
+            int client_idx;
+            for(int i = 0; i < N_SESSION_PLAYERS; i++){
+                if((games[game_idx]->players)[i] != NULL){
+                    client_idx = (games[game_idx]->players)[i]->client_idx;
+                }
+            }
             strcpy(send_msg.msg, "Insufficient number of players have joined the game session.");
             client_msg(send_msg, client_idx);
 
@@ -344,8 +361,10 @@ void* service_game_request(void* arg){
             games[game_idx] = NULL;
         }
         // else: send game request to all etc etc...TO-DO.
-        else{ // for now, simply print the players that will join the session
-            for(int i = 0; i < 8; i++){
+        else if(n_players > 1){ // for now, simply print the players that will join the session
+            games[game_idx]->n_players = n_players;
+
+            for(int i = 0; i < N_SESSION_PLAYERS; i++){
                 if((games[game_idx]->players)[i] != NULL){
                     strcpy(send_msg.msg, "You have successfully joined the game session...starting soon...");
                     client_msg(send_msg, (games[game_idx]->players)[i]->client_idx);
@@ -421,7 +440,7 @@ void sfunc_battle(int argc, char* argv[], int client_idx){
         games[game_idx]->time = -1;
         games[game_idx]->n_winlines = -1;
         games[game_idx]->n_baselines = -1;
-        for(int i = 1; i < 8; i++){
+        for(int i = 1; i < N_SESSION_PLAYERS; i++){
             games[game_idx]->players[i] = NULL;
         }
 
@@ -538,7 +557,7 @@ void sfunc_battle(int argc, char* argv[], int client_idx){
                             }
                         }
                     }
-                    else if(n_players == 8){
+                    else if(n_players > N_SESSION_PLAYERS){
                         parsed_correctly = 0;
                         strcpy(send_msg.msg, "Invalid number of opponents: too many specified.");
                         client_msg(send_msg, client_idx);
@@ -609,6 +628,8 @@ void sfunc_battle(int argc, char* argv[], int client_idx){
                 games[game_idx]->time = TIME_DEFAULT;
             }
 
+            (games[game_idx]->top_three)[0] = (games[game_idx]->top_three)[1] = (games[game_idx]->top_three)[2] = -1;
+
             if(pthread_create(game_threads + game_idx, NULL, service_game_request, (void*) &game_idx) != 0){
                 mrerror("Error while creating thread to service newly created game session");
             }
@@ -657,7 +678,7 @@ void sfunc_go(int argc, char* argv[], int client_idx) {
         }else{
             int registered_in_game = 0;
 
-            for(int i = 0; i < 8; i++){
+            for(int i = 0; i < N_SESSION_PLAYERS; i++){
                 if(((games[game_idx]->players)[i] != NULL) && ((games[game_idx]->players)[i]->client_idx == client_idx)){
                     registered_in_game = 1;
                     pthread_mutex_lock(clientMutexes + client_idx);
@@ -710,7 +731,7 @@ void sfunc_ignore(int argc, char* argv[], int client_idx){
         }else{
             int registered_in_game = -1;
 
-            for(int i = 0; i < 8; i++){
+            for(int i = 0; i < N_SESSION_PLAYERS; i++){
                 if(((games[game_idx]->players)[i] != NULL) && ((games[game_idx]->players)[i]->client_idx == client_idx)){
                     registered_in_game = i;
                 }
@@ -727,7 +748,7 @@ void sfunc_ignore(int argc, char* argv[], int client_idx){
                 strcat(send_msg.msg, argv[1]);
                 strcat(send_msg.msg, ".");
 
-                for(int i = 0; i < 8; i++){
+                for(int i = 0; i < N_SESSION_PLAYERS; i++){
                     if(((games[game_idx]->players)[i] != NULL) && ((games[game_idx]->players)[i]->client_idx != client_idx)){
                         client_msg(send_msg, (games[game_idx]->players)[i]->client_idx);
                     }
@@ -978,7 +999,7 @@ int handle_score_update_msg(char* chat_msg, int client_idx){
     pthread_mutex_lock(clientMutexes + client_idx);
     if(clients[client_idx] != NULL){
         pthread_mutex_lock(gameMutexes + clients[client_idx]->game_idx);
-        for(int i = 0; i < 8; i++){
+        for(int i = 0; i < N_SESSION_PLAYERS; i++){
             if((games[clients[client_idx]->game_idx]->players)[i]->client_idx == client_idx){
                 (games[clients[client_idx]->game_idx]->players)[i]->score = strtol(chat_msg, NULL, 10);
             }
@@ -989,105 +1010,118 @@ int handle_score_update_msg(char* chat_msg, int client_idx){
 
     return 0;
 }
+
 int handle_finished_game_msg(char* chat_msg, int client_idx){
     int game_idx = -1;
+    int player_idx = 0;
+    int game_finished = 0;
 
     pthread_mutex_lock(clientMutexes + client_idx);
     if(clients[client_idx] != NULL){
         game_idx = clients[client_idx]->game_idx;
-        pthread_mutex_lock(gameMutexes + game_idx);
-        for(int i = 0; i < 8; i++){
-            if((games[game_idx]->players)[i] != NULL && (games[game_idx]->players)[i]->client_idx == client_idx){
-                (games[game_idx]->players)[i]->state = FINISHED;
-            }
-        }
-        pthread_mutex_unlock(gameMutexes + game_idx);
     }
     pthread_mutex_unlock(clientMutexes + client_idx);
 
     if(game_idx > 0){
         pthread_mutex_lock(gameMutexes + game_idx);
 
-        int n_players, n_finished_players;
-        n_players = n_finished_players = 0;
+        for(; player_idx < N_SESSION_PLAYERS; player_idx++){
+            if((games[game_idx]->players)[player_idx] != NULL && (games[game_idx]->players)[player_idx]->client_idx == client_idx){
+                (games[game_idx]->players)[player_idx]->state = FINISHED;
+            }
+        }
 
-        for(int i = 0; i < 8; i++){
-            if((games[game_idx]->players)[i] != NULL){
-                n_players++;
+        if(games[game_idx]->game_type == RISING_TIDE){
+            // shift down rankings; last player standing gets first place, etc
+            (games[game_idx]->top_three)[2] = (games[game_idx]->top_three)[1];
+            (games[game_idx]->top_three)[1] = (games[game_idx]->top_three)[0];
+            (games[game_idx]->top_three)[0] = player_idx;
+        }
+        else if(games[game_idx]->game_type == FAST_TRACK){
+            for(int i = 0; i < 3; i++){
+                if((games[game_idx]->top_three)[i] < 0){
+                    (games[game_idx]->top_three)[i] = player_idx;
+                    break;
+                }
+            }
+        }else{
+            int player_score = (games[game_idx]->players)[player_idx]->score;
 
-                if((games[game_idx]->players)[i]->state == FINISHED){
-                    n_finished_players++;
+            for(int i = 0; i < 3; i++){
+                if((games[game_idx]->top_three)[i] < 0){
+                    (games[game_idx]->top_three)[i] = player_idx;
+                    break;
+                }
+                else if((games[game_idx]->players)[(games[game_idx]->top_three)[i]]->score < player_score){
+                    for(int j = i; j < 2; j++){
+                        (games[game_idx]->top_three)[j+1] = (games[game_idx]->top_three)[j];
+                    }
+
+                    (games[game_idx]->top_three)[i] = player_idx;
+                    break;
                 }
             }
         }
 
-        if(n_finished_players == n_players){
+        int n_completed_players  = 0;
+
+        for(int i = 0; i < N_SESSION_PLAYERS; i++){
+            if((games[game_idx]->players)[i] != NULL){
+                if((games[game_idx]->players)[i]->state == FINISHED || (games[game_idx]->players)[i]->state == DISCONNECTED){
+                    n_completed_players++;
+                }
+            }
+        }
+
+        if(n_completed_players == games[game_idx]->n_players){
+            game_finished = 1;
+
             msg finished_msg;
             finished_msg.msg_type = CHAT;
             finished_msg.msg = malloc(256 + 3*UNAME_LEN);
             if(finished_msg.msg == NULL){
                 mrerror("Error encountered while allocating memory");
             }
-            strcpy(finished_msg.msg, "All players have completed the game! The winner is ");
+            strcpy(finished_msg.msg, "All players have completed the game! The top players are, in highest ranking order:");
 
-            int best_score1, best_score2, best_score3, best_player1, best_player2, best_player3;
-            best_score1 = best_score2 = best_score3 = 0; best_player1 = best_player2 = best_player3 = -1;
-
-            for(int i = 0; i < 8; i++){
-                if((games[game_idx]->players)[i] != NULL && (games[game_idx]->players)[i]->score >= best_score1){
-                    best_score1 = (games[game_idx]->players)[i]->score;
-                    best_player1 = i;
+            for(int i = 0; i < 3; i++){
+                if((games[game_idx]->top_three)[i] >= 0){
+                    strcat(finished_msg.msg, "\n\t");
+                    strcat(finished_msg.msg, (games[game_idx]->players)[(games[game_idx]->top_three)[i]]->nickname);
+                    strcat(finished_msg.msg, " with a score of ");
+                    sprintf(finished_msg.msg, "%d", (games[game_idx]->players)[(games[game_idx]->top_three)[i]]->score);
+                    strcat(finished_msg.msg, " points.");
                 }
             }
 
-            strcat(finished_msg.msg, (games[game_idx]->players)[best_player1]->nickname);
-            strcat(finished_msg.msg, ", with a score of ");
-            sprintf(finished_msg.msg, "%d", (games[game_idx]->players)[best_player1]->score);
-            strcat(finished_msg.msg, " points.\n");
+            int winner_idx = (games[game_idx]->players)[(games[game_idx]->top_three)[0]]->client_idx;
 
-            for(int i = 0; i < 8; i++){
-                if(i != best_player1 && (games[game_idx]->players)[i] != NULL &&
-                (games[game_idx]->players)[i]->score >= best_score2){
-                    best_score2 = (games[game_idx]->players)[i]->score;
-                    best_player2 = i;
-                }
-            }
+            for(int i = 0; i < N_SESSION_PLAYERS; i++){
+                if((games[game_idx]->players)[i] != NULL && (games[game_idx]->players)[i]->state != DISCONNECTED){
+                    int curr_client_idx = (games[game_idx]->players)[i]->client_idx;
 
-            if(n_players >= 3){
-                for(int i = 0; i < 8; i++){
-                    if(i != best_player1 && i != best_player2 && (games[game_idx]->players)[i] != NULL &&
-                    (games[game_idx]->players)[i]->score >= best_score2){
-                        best_score3 = (games[game_idx]->players)[i]->score;
-                        best_player3 = i;
+                    pthread_mutex_lock(clientMutexes + curr_client_idx);
+                    clients[curr_client_idx]->game_idx = -1;
+
+                    if(curr_client_idx != winner_idx && clients[curr_client_idx] != NULL){
+                        clients[curr_client_idx]->n_losses++;
                     }
-                }
+                    else if(curr_client_idx == winner_idx && clients[curr_client_idx] != NULL){
+                        clients[curr_client_idx]->n_wins++;
+                    }
+                    pthread_mutex_unlock(clientMutexes + curr_client_idx);
 
-                strcat(finished_msg.msg, "The runners up are:\n\t");
-                strcat(finished_msg.msg, (games[game_idx]->players)[best_player2]->nickname);
-                strcat(finished_msg.msg, ", with a score of ");
-                sprintf(finished_msg.msg, "%d", (games[game_idx]->players)[best_player2]->score);
-                strcat(finished_msg.msg, " points.\n\t");
-                strcat(finished_msg.msg, (games[game_idx]->players)[best_player3]->nickname);
-                strcat(finished_msg.msg, ", with a score of ");
-                sprintf(finished_msg.msg, "%d", (games[game_idx]->players)[best_player3]->score);
-                strcat(finished_msg.msg, " points.");
-            }else{
-                strcat(finished_msg.msg, "Opponent ");
-                strcat(finished_msg.msg, (games[game_idx]->players)[best_player2]->nickname);
-                strcat(finished_msg.msg, " got a score of ");
-                sprintf(finished_msg.msg, "%d", (games[game_idx]->players)[best_player2]->score);
-                strcat(finished_msg.msg, " points.");
-            }
-
-            for(int i = 0; i < 8; i++){
-                if((games[game_idx]->players)[i] != NULL){
                     client_msg(finished_msg, (games[game_idx]->players)[i]->client_idx);
                 }
             }
-
         }
 
         pthread_mutex_unlock(gameMutexes + game_idx);
+    }
+
+    if(game_finished){
+        free(games[game_idx]);
+        games[game_idx] = NULL;
     }
 
     return 0;

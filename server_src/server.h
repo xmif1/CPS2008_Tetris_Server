@@ -24,6 +24,13 @@
 #define HEADER_SIZE (MSG_LEN_DIGITS + 6) // '<msg_len>::<msg_type>::\0' where msg_len is of size MSG_LEN_DIGITS chars and msg_type is 1 char
 #define UNAME_LEN 32
 
+// GAME SESSION CONFIGS
+#define INVITATION_EXP 30 // seconds
+#define N_SESSION_PLAYERS 8
+#define BASELINES_DEFAULT 2
+#define WINLINES_DEFAULT 12
+#define TIME_DEFAULT 5 // minutes
+
 // STRUCTS
 typedef struct{
     struct sockaddr_in clientaddrIn;
@@ -44,9 +51,11 @@ typedef struct{
 }ingame_client;
 
 typedef struct{
-    ingame_client* players[8];
+    ingame_client* players[N_SESSION_PLAYERS];
+    int top_three[3];
     int game_idx;
     int game_type;
+    int n_players;
     int n_baselines;
     int n_winlines;
     int time;
@@ -98,11 +107,6 @@ pthread_t game_threads[MAX_CLIENTS];
 pthread_mutex_t clientMutexes[MAX_CLIENTS];
 pthread_mutex_t gameMutexes[MAX_CLIENTS];
 
-#define INVITATION_EXP 30 // seconds
-#define BASELINES_DEFAULT 2
-#define WINLINES_DEFAULT 12
-#define TIME_DEFAULT 5 // minutes
-
 #define N_SFUNCS 10
 char* sfunc_dict[N_SFUNCS] = {"!leaderboard", "!players", "!playerstats", "!battle", "!quick", "!chill", "!go",
                               "!ignore", "!nickname", "!help"};
@@ -111,6 +115,6 @@ void (*sfunc[])(int argc, char *argv[], int client_idx) = {&sfunc_leaderboard, &
                                                            &sfunc_ignore, &sfunc_nickname, &sfunc_help};
 enum MsgType {CHAT = 0, SCORE_UPDATE = 1, FINISHED_GAME = 2};
 enum GameType {RISING_TIDE = 0, FAST_TRACK = 1, BOOMER = 2};
-enum State {REJECTED = 0, CONNECTED = 1, FINISHED = 2};
+enum State {REJECTED = 0, CONNECTED = 1, FINISHED = 2, DISCONNECTED = 3};
 
 #endif //CPS2008_TETRIS_SERVER_H
