@@ -47,7 +47,6 @@ void sig_handler(){
         for(int i = 0; i < MAX_CLIENTS; i++){
             if(clients[i] != NULL){
                 pthread_cancel(service_threads[i]);
-                pthread_join(service_threads[i], NULL);
 
                 close(clients[i]->client_fd);
 
@@ -652,7 +651,113 @@ void sfunc_battle(int argc, char* argv[], int client_idx){
     }
 }
 
-void sfunc_quick(int argc, char* argv[], int client_idx){}
+void sfunc_quick(int argc, char* argv[], int client_idx){
+    msg send_msg;
+    send_msg.msg = malloc(128 + UNAME_LEN);
+    if(send_msg.msg == NULL){
+        mrerror("Error encountered while allocating memory");
+    }
+    send_msg.msg_type = CHAT;
+
+    if(argc == 1){
+        strcpy(send_msg.msg, "Invalid option: Please specify the number of opponents you wish to join the session.");
+    }else{
+        int n_req_opponents = strtol(argv[1], NULL, 10);
+
+        int n_available_opponents = 0;
+        for(int i = 0; i < MAX_CLIENTS; i++){
+            pthread_mutex_lock(clientMutexes + i);
+            if(i != client_idx && clients[i] != NULL && clients[i]->game_idx < 0){
+                n_available_opponents++;
+            }
+        }
+
+        if(N_SESSION_PLAYERS <= n_req_opponents){
+            strcpy(send_msg.msg, "Invalid option: Too many opponents specified.");
+        }
+        else if(n_req_opponents < 1){
+            strcpy(send_msg.msg, "Invalid option: Too few opponents specified.");
+        }
+        else if(n_available_opponents < n_req_opponents){
+            strcpy(send_msg.msg, "Invalid option: Not enough players are available to join the game session.");
+        }
+        else{
+            int game_idx = 0;
+            for(; game_idx < MAX_CLIENTS; game_idx++){
+                pthread_mutex_lock(gameMutexes + game_idx);
+                if(games[game_idx] == NULL){
+                    break;
+                }
+                else{
+                    pthread_mutex_unlock(gameMutexes + game_idx);
+                }
+            }
+
+            games[game_idx] = malloc(sizeof(game_session));
+
+            (games[game_idx]->players)[0] = malloc(sizeof(ingame_client));
+            (games[game_idx]->players)[0]->client_idx = client_idx;
+            (games[game_idx]->players)[0]->state = CONNECTED;
+            (games[game_idx]->players)[0]->score = 0;
+            strcpy((games[game_idx]->players)[0]->nickname, clients[client_idx]->nickname);
+
+            games[game_idx]->game_idx = game_idx;
+            games[game_idx]->time = (rand() % TIME_DEFAULT) + 1;
+            games[game_idx]->n_winlines = (rand() % WINLINES_DEFAULT) + 1;
+            games[game_idx]->n_baselines = (rand() % BASELINES_DEFAULT) + 1;
+
+            for(int i = 1; i <= n_req_opponents; i++){
+                int opponent_idx, added_player;
+                opponent_idx = added_player = 0;
+
+                while(!added_player){
+                    opponent_idx = rand() % MAX_CLIENTS;
+
+                    if(clients[opponent_idx] == NULL || clients[opponent_idx]->game_idx >= 0){
+                        continue;
+                    }else{
+                        added_player = 1;
+                        for(int j = 0; j < i; j++){
+                            if((games[game_idx]->players)[j]->client_idx == opponent_idx){
+                                added_player = 0;
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                (games[game_idx]->players)[i] = malloc(sizeof(ingame_client));
+                (games[game_idx]->players)[i]->state = REJECTED;
+                (games[game_idx]->players)[i]->score = 0;
+                (games[game_idx]->players)[i]->client_idx = opponent_idx;
+                strcpy((games[game_idx]->players)[i]->nickname, clients[opponent_idx]->nickname);
+            }
+
+            for(int i = n_req_opponents + 1; i < N_SESSION_PLAYERS; i++){
+                games[game_idx]->players[i] = NULL;
+            }
+
+            (games[game_idx]->top_three)[0] = (games[game_idx]->top_three)[1] = (games[game_idx]->top_three)[2] = -1;
+
+            if(pthread_create(game_threads + game_idx, NULL, service_game_request, (void*) &game_idx) != 0){
+                mrerror("Error while creating thread to service newly created game session");
+            }
+
+            pthread_mutex_unlock(gameMutexes + game_idx);
+
+            clients[client_idx]->game_idx = game_idx;
+
+            strcpy(send_msg.msg, "Game invite sent to the other players...waiting for their response....");
+        }
+
+        for(int i = 0; i < MAX_CLIENTS; i++){
+            pthread_mutex_unlock(clientMutexes + i);
+        }
+    }
+
+    client_msg(send_msg, client_idx);
+}
+
 void sfunc_chill(int argc, char* argv[], int client_idx){}
 
 void sfunc_go(int argc, char* argv[], int client_idx) {
