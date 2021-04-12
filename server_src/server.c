@@ -156,13 +156,11 @@ void add_client(int client_fd, struct sockaddr_in clientaddrIn){
 void remove_client(int client_idx){
     pthread_mutex_lock(clientMutexes + client_idx);
     if(clients[client_idx] != NULL){
-        close(clients[client_idx]->client_fd);
-
         int game_idx = clients[client_idx]->game_idx;
         pthread_mutex_lock(gameMutexes + game_idx);
         if(game_idx >= 0 && games[game_idx] != NULL){
             for(int i = 0; i < N_SESSION_PLAYERS; i++){
-                if((games[game_idx]->players)[i]->client_idx == client_idx){
+                if((games[game_idx]->players)[i] != NULL && (games[game_idx]->players)[i]->client_idx == client_idx){
                     (games[game_idx]->players)[i]->state = DISCONNECTED;
                 }
             }
@@ -179,6 +177,8 @@ void remove_client(int client_idx){
         strcpy(send_msg.msg, "Player ");
         strcat(send_msg.msg, clients[client_idx]->nickname);
         strcat(send_msg.msg, " has disconnected.");
+
+        close(clients[client_idx]->client_fd);
 
         free(clients[client_idx]);
         clients[client_idx] = NULL;
@@ -273,7 +273,7 @@ void* service_game_request(void* arg){
         request_msg.msg_type = CHAT;
         strcpy(request_msg.msg, "Player ");
         strcat(request_msg.msg, (games[game_idx]->players)[0]->nickname);
-        strcat(request_msg.msg, " has invited to a game of Super Battle Tetris: ");
+        strcat(request_msg.msg, " has invited you to a game of Super Battle Tetris: ");
         if(games[game_idx]->game_type == RISING_TIDE){
             strcat(request_msg.msg, "Rising Tide!\n\nThe invited players are:");
         }
@@ -318,12 +318,12 @@ void* service_game_request(void* arg){
 
     sleep(INVITATION_EXP);
 
-    int n_players = 1;
+    int n_players = 0;
 
     pthread_mutex_lock(gameMutexes + game_idx);
     if(games[game_idx] != NULL){
-        for(int i = 1; i < N_SESSION_PLAYERS; i++){
-            if(((games[game_idx]->players)[i] != NULL) && ((games[game_idx]->players)[i]->state == REJECTED ||
+        for(int i = 0; i < N_SESSION_PLAYERS; i++){
+            if(((games[game_idx]->players)[i] != NULL) && ((games[game_idx]->players)[i]->state == WAITING ||
             (games[game_idx]->players)[i]->state == DISCONNECTED)){
                 free((games[game_idx]->players)[i]);
                 (games[game_idx]->players)[i] = NULL;
@@ -340,9 +340,14 @@ void* service_game_request(void* arg){
         }
 
         send_msg.msg_type = CHAT;
-        if(n_players == 1){
+        if(n_players == 0){
+            free(games[game_idx]);
+            games[game_idx] = NULL;
+        }
+        else if(n_players == 1){
             int client_idx;
-            for(int i = 0; i < N_SESSION_PLAYERS; i++){
+            int i = 0;
+            for(; i < N_SESSION_PLAYERS; i++){
                 if((games[game_idx]->players)[i] != NULL){
                     client_idx = (games[game_idx]->players)[i]->client_idx;
                 }
@@ -364,7 +369,7 @@ void* service_game_request(void* arg){
             games[game_idx]->n_players = n_players;
 
             for(int i = 0; i < N_SESSION_PLAYERS; i++){
-                if((games[game_idx]->players)[i] != NULL){
+                if((games[game_idx]->players)[i] != NULL && (games[game_idx]->players)[i]->state != DISCONNECTED){
                     strcpy(send_msg.msg, "You have successfully joined the game session...starting soon...");
                     client_msg(send_msg, (games[game_idx]->players)[i]->client_idx);
                 }
@@ -415,7 +420,11 @@ void sfunc_battle(int argc, char* argv[], int client_idx){
     send_msg.msg_type = CHAT;
 
     pthread_mutex_lock(clientMutexes + client_idx);
-    if(clients[client_idx] != NULL){
+    if(clients[client_idx] != NULL && clients[client_idx]->game_idx >= 0){
+        strcpy(send_msg.msg, "Cannot join another game while one is in progress.");
+        client_msg(send_msg, client_idx);
+    }
+    else if(clients[client_idx] != NULL){
         int game_idx = 0;
         for(; game_idx < MAX_CLIENTS; game_idx++){
             pthread_mutex_lock(gameMutexes + game_idx);
@@ -601,7 +610,7 @@ void sfunc_battle(int argc, char* argv[], int client_idx){
                             }
                             else{
                                 (games[game_idx]->players)[n_players] = malloc(sizeof(ingame_client));
-                                (games[game_idx]->players)[n_players]->state = REJECTED;
+                                (games[game_idx]->players)[n_players]->state = WAITING;
                                 (games[game_idx]->players)[n_players]->score = 0;
                                 (games[game_idx]->players)[n_players]->client_idx = opponent_idx;
                                 strcpy((games[game_idx]->players)[n_players]->nickname, argv[i]);
@@ -629,15 +638,15 @@ void sfunc_battle(int argc, char* argv[], int client_idx){
 
             (games[game_idx]->top_three)[0] = (games[game_idx]->top_three)[1] = (games[game_idx]->top_three)[2] = -1;
 
-            if(pthread_create(game_threads + game_idx, NULL, service_game_request, (void*) &game_idx) != 0){
+            pthread_mutex_lock(clientMutexes + client_idx);
+            clients[client_idx]->game_idx = game_idx;
+            pthread_mutex_unlock(clientMutexes + client_idx);
+
+            if(pthread_create(game_threads + game_idx, NULL, service_game_request, (void*) &(clients[client_idx]->game_idx)) != 0){
                 mrerror("Error while creating thread to service newly created game session");
             }
 
             pthread_mutex_unlock(gameMutexes + game_idx);
-
-            pthread_mutex_lock(clientMutexes + client_idx);
-            clients[client_idx]->game_idx = game_idx;
-            pthread_mutex_unlock(clientMutexes + client_idx);
 
             strcpy(send_msg.msg, "Game invite sent to the other players...waiting for their response....");
             client_msg(send_msg, client_idx);
@@ -672,7 +681,10 @@ void sfunc_quick(int argc, char* argv[], int client_idx){
             }
         }
 
-        if(N_SESSION_PLAYERS <= n_req_opponents){
+        if(clients[client_idx] != NULL && clients[client_idx]->game_idx >= 0){
+            strcpy(send_msg.msg, "Cannot join another game while one is in progress.");
+        }
+        else if(N_SESSION_PLAYERS <= n_req_opponents){
             strcpy(send_msg.msg, "Invalid option: Too many opponents specified.");
         }
         else if(n_req_opponents < 1){
@@ -727,7 +739,7 @@ void sfunc_quick(int argc, char* argv[], int client_idx){
                 }
 
                 (games[game_idx]->players)[i] = malloc(sizeof(ingame_client));
-                (games[game_idx]->players)[i]->state = REJECTED;
+                (games[game_idx]->players)[i]->state = WAITING;
                 (games[game_idx]->players)[i]->score = 0;
                 (games[game_idx]->players)[i]->client_idx = opponent_idx;
                 strcpy((games[game_idx]->players)[i]->nickname, clients[opponent_idx]->nickname);
@@ -739,13 +751,13 @@ void sfunc_quick(int argc, char* argv[], int client_idx){
 
             (games[game_idx]->top_three)[0] = (games[game_idx]->top_three)[1] = (games[game_idx]->top_three)[2] = -1;
 
-            if(pthread_create(game_threads + game_idx, NULL, service_game_request, (void*) &game_idx) != 0){
+            clients[client_idx]->game_idx = game_idx;
+
+            if(pthread_create(game_threads + game_idx, NULL, service_game_request, (void*) &(clients[client_idx]->game_idx)) != 0){
                 mrerror("Error while creating thread to service newly created game session");
             }
 
             pthread_mutex_unlock(gameMutexes + game_idx);
-
-            clients[client_idx]->game_idx = game_idx;
 
             strcpy(send_msg.msg, "Game invite sent to the other players...waiting for their response....");
         }
@@ -787,7 +799,13 @@ void sfunc_go(int argc, char* argv[], int client_idx) {
                 if(((games[game_idx]->players)[i] != NULL) && ((games[game_idx]->players)[i]->client_idx == client_idx)){
                     registered_in_game = 1;
                     pthread_mutex_lock(clientMutexes + client_idx);
-                    if((clients[client_idx] != NULL) && (clients[client_idx]->game_idx < 0)){
+                    if((games[game_idx]->players)[i]->state != WAITING){
+                        pthread_mutex_unlock(clientMutexes + client_idx);
+
+                        strcpy(send_msg.msg, "You have already joined this game session.");
+                        client_msg(send_msg, client_idx);
+                    }
+                    else if((clients[client_idx] != NULL) && (clients[client_idx]->game_idx < 0)){
                         clients[client_idx]->game_idx = game_idx;
                         (games[game_idx]->players)[i]->state = CONNECTED;
                         pthread_mutex_unlock(clientMutexes + client_idx);
@@ -846,7 +864,10 @@ void sfunc_ignore(int argc, char* argv[], int client_idx){
                 strcpy(send_msg.msg, "Invalid game id: you are not registered to this game session.");
                 client_msg(send_msg, client_idx);
             }
-            else{
+            else if((games[game_idx]->players)[registered_in_game]->state != WAITING){
+                strcpy(send_msg.msg, "Cannot decline a game request after accepting to join.");
+                client_msg(send_msg, client_idx);
+            }else{
                 strcpy(send_msg.msg, "Player ");
                 strcat(send_msg.msg, (games[game_idx]->players)[registered_in_game]->nickname);
                 strcat(send_msg.msg, " has declined to join game session ");
@@ -854,7 +875,8 @@ void sfunc_ignore(int argc, char* argv[], int client_idx){
                 strcat(send_msg.msg, ".");
 
                 for(int i = 0; i < N_SESSION_PLAYERS; i++){
-                    if(((games[game_idx]->players)[i] != NULL) && ((games[game_idx]->players)[i]->client_idx != client_idx)){
+                    if(((games[game_idx]->players)[i] != NULL) && ((games[game_idx]->players)[i]->client_idx != client_idx)
+                    && ((games[game_idx]->players)[i]->state != DISCONNECTED)){
                         client_msg(send_msg, (games[game_idx]->players)[i]->client_idx);
                     }
                 }

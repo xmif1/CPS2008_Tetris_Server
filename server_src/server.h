@@ -115,6 +115,6 @@ void (*sfunc[])(int argc, char *argv[], int client_idx) = {&sfunc_leaderboard, &
                                                            &sfunc_ignore, &sfunc_nickname, &sfunc_help};
 enum MsgType {CHAT = 0, SCORE_UPDATE = 1, FINISHED_GAME = 2};
 enum GameType {RISING_TIDE = 0, FAST_TRACK = 1, BOOMER = 2};
-enum State {REJECTED = 0, CONNECTED = 1, FINISHED = 2, DISCONNECTED = 3};
+enum State {WAITING = 0, CONNECTED = 1, FINISHED = 2, DISCONNECTED = 3};
 
 #endif //CPS2008_TETRIS_SERVER_H
