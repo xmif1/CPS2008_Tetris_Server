@@ -4,6 +4,7 @@
 
 #include <sys/socket.h>
 #include <netinet/in.h>
+#include <arpa/inet.h>
 #include <pthread.h>
 #include <signal.h>
 #include <unistd.h>
@@ -44,6 +45,7 @@ typedef struct{
 }client;
 
 typedef struct{
+    char ip[INET_ADDRSTRLEN];
     int client_idx;
     char nickname[UNAME_LEN];
     int state;
@@ -52,6 +54,7 @@ typedef struct{
 
 typedef struct{
     ingame_client* players[N_SESSION_PLAYERS];
+    pthread_cond_t p2p_ready;
     int top_three[3];
     int game_idx;
     int game_type;
@@ -72,6 +75,7 @@ int nickname_uniqueQ(char nickname[UNAME_LEN]);
 int handle_chat_msg(char* chat_msg, int client_idx);
 int handle_score_update_msg(char* chat_msg, int client_idx);
 int handle_finished_game_msg(char* chat_msg, int client_idx);
+int handle_p2p_read_msg(char* chat_msg, int client_idx);
 void* service_client(void* arg);
 void* service_game_request(void* arg);
 void sig_handler();
@@ -113,7 +117,8 @@ char* sfunc_dict[N_SFUNCS] = {"!leaderboard", "!players", "!playerstats", "!batt
 void (*sfunc[])(int argc, char *argv[], int client_idx) = {&sfunc_leaderboard, &sfunc_players, &sfunc_playerstats,
                                                            &sfunc_battle, &sfunc_quick, &sfunc_chill, &sfunc_go,
                                                            &sfunc_ignore, &sfunc_nickname, &sfunc_help};
-enum MsgType {CHAT = 0, SCORE_UPDATE = 1, FINISHED_GAME = 2};
+enum MsgType {CHAT = 0, SCORE_UPDATE = 1, NEW_GAME = 2, FINISHED_GAME = 3, P2P_READY = 4, CLIENTS_CONNECTED = 5,
+              START_GAME = 6};
 enum GameType {RISING_TIDE = 0, FAST_TRACK = 1, BOOMER = 2};
 enum State {WAITING = 0, CONNECTED = 1, FINISHED = 2, DISCONNECTED = 3};
 

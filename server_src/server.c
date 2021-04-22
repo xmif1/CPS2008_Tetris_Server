@@ -245,6 +245,7 @@ void* service_client(void* arg){
             case CHAT: break_while_loop = handle_chat_msg(recv_str, client_idx); break;
             case SCORE_UPDATE: break_while_loop = handle_score_update_msg(recv_str, client_idx); break;
             case FINISHED_GAME: break_while_loop = handle_finished_game_msg(recv_str, client_idx); break;
+            case P2P_READY: break_while_loop = handle_p2p_read_msg(recv_str, client_idx); break;
             default: break_while_loop = 0;
         }
 
@@ -364,14 +365,64 @@ void* service_game_request(void* arg){
             free(games[game_idx]);
             games[game_idx] = NULL;
         }
-        // else: send game request to all etc etc...TO-DO.
-        else if(n_players > 1){ // for now, simply print the players that will join the session
+        else if(n_players > 1){
             games[game_idx]->n_players = n_players;
 
+            char new_game_msg_header[64];
+
+            sprintf(new_game_msg_header, "%d", games[game_idx]->game_type);
+            strcat(new_game_msg_header, "::");
+            sprintf(new_game_msg_header, "%d", games[game_idx]->n_baselines);
+            strcat(new_game_msg_header, "::");
+            sprintf(new_game_msg_header, "%d", games[game_idx]->n_winlines);
+            strcat(new_game_msg_header, "::");
+            sprintf(new_game_msg_header, "%d", games[game_idx]->time);
+
+            char new_game_msg_tail[n_players*UNAME_LEN];
+
             for(int i = 0; i < N_SESSION_PLAYERS; i++){
-                if((games[game_idx]->players)[i] != NULL && (games[game_idx]->players)[i]->state != DISCONNECTED){
-                    strcpy(send_msg.msg, "You have successfully joined the game session...starting soon...");
-                    client_msg(send_msg, (games[game_idx]->players)[i]->client_idx);
+                if((games[game_idx]->players)[i] != NULL){
+                    strcat(new_game_msg_tail, "::");
+                    strcpy(new_game_msg_tail, (games[game_idx]->players)[i]->ip);
+                }
+            }
+
+            int port_block_offset = 0;
+            for(int i = 0; i < N_SESSION_PLAYERS; i++){
+                if((games[game_idx]->players)[i] != NULL){
+                    port_block_offset++;
+
+                    msg new_game_msg;
+                    new_game_msg.msg = malloc(256 + (n_players - 1)*UNAME_LEN);
+                    if(new_game_msg.msg == NULL){
+                        mrerror("Error encountered while allocating memory");
+                    }
+
+                    new_game_msg.msg_type = NEW_GAME;
+                    strcpy(new_game_msg.msg, new_game_msg_header);
+                    strcat(new_game_msg.msg, "::");
+                    sprintf(new_game_msg.msg, "%d", port_block_offset);
+                    strcat(new_game_msg.msg, new_game_msg_tail);
+
+                    client_msg(new_game_msg, (games[game_idx]->players)[i]->client_idx);
+                }
+            }
+
+            int n_players_p2p_ready = 0;
+            while(n_players_p2p_ready < n_players){
+                pthread_cond_wait(&(games[game_idx]->p2p_ready), gameMutexes + game_idx);
+                n_players_p2p_ready++;
+            }
+
+            msg start_game_msg;
+            start_game_msg.msg_type = START_GAME;
+
+            start_game_msg.msg = malloc(1);
+            strcpy(start_game_msg.msg, "");
+
+            for(int i = 0; i < N_SESSION_PLAYERS; i++){
+                if((games[game_idx]->players)[i] != NULL){
+                    client_msg(start_game_msg, (games[game_idx]->players)[i]->client_idx);
                 }
             }
         }
@@ -443,6 +494,7 @@ void sfunc_battle(int argc, char* argv[], int client_idx){
         (games[game_idx]->players)[0]->state = CONNECTED;
         (games[game_idx]->players)[0]->score = 0;
         strcpy((games[game_idx]->players)[0]->nickname, clients[client_idx]->nickname);
+        inet_ntop(AF_INET, &(clients[client_idx]->clientaddrIn.sin_addr), (games[game_idx]->players)[0]->ip, INET_ADDRSTRLEN);
 
         games[game_idx]->game_idx = game_idx;
         games[game_idx]->time = -1;
@@ -712,6 +764,7 @@ void sfunc_quick(int argc, char* argv[], int client_idx){
             (games[game_idx]->players)[0]->state = CONNECTED;
             (games[game_idx]->players)[0]->score = 0;
             strcpy((games[game_idx]->players)[0]->nickname, clients[client_idx]->nickname);
+            inet_ntop(AF_INET, &(clients[client_idx]->clientaddrIn.sin_addr), (games[game_idx]->players)[0]->ip, INET_ADDRSTRLEN);
 
             games[game_idx]->game_idx = game_idx;
             games[game_idx]->time = (rand() % TIME_DEFAULT) + 1;
@@ -808,6 +861,7 @@ void sfunc_go(int argc, char* argv[], int client_idx) {
                     else if((clients[client_idx] != NULL) && (clients[client_idx]->game_idx < 0)){
                         clients[client_idx]->game_idx = game_idx;
                         (games[game_idx]->players)[i]->state = CONNECTED;
+                        inet_ntop(AF_INET, &(clients[client_idx]->clientaddrIn.sin_addr), (games[game_idx]->players)[i]->ip, INET_ADDRSTRLEN);
                         pthread_mutex_unlock(clientMutexes + client_idx);
 
                         strcpy(send_msg.msg, "You have successfully joined the game session.");
@@ -1127,7 +1181,9 @@ int handle_score_update_msg(char* chat_msg, int client_idx){
     if(clients[client_idx] != NULL){
         pthread_mutex_lock(gameMutexes + clients[client_idx]->game_idx);
         for(int i = 0; i < N_SESSION_PLAYERS; i++){
-            if((games[clients[client_idx]->game_idx]->players)[i]->client_idx == client_idx){
+            if((games[clients[client_idx]->game_idx]->players)[i] != NULL &&
+                (games[clients[client_idx]->game_idx]->players)[i]->client_idx == client_idx){
+
                 (games[clients[client_idx]->game_idx]->players)[i]->score = strtol(chat_msg, NULL, 10);
             }
         }
@@ -1250,6 +1306,24 @@ int handle_finished_game_msg(char* chat_msg, int client_idx){
         free(games[game_idx]);
         games[game_idx] = NULL;
     }
+
+    return 0;
+}
+
+int handle_p2p_read_msg(char* chat_msg, int client_idx){
+    pthread_mutex_lock(clientMutexes + client_idx);
+    if(clients[client_idx] != NULL){
+        pthread_mutex_lock(gameMutexes + clients[client_idx]->game_idx);
+        for(int i = 0; i < N_SESSION_PLAYERS; i++){
+            if((games[clients[client_idx]->game_idx]->players)[i] != NULL &&
+                (games[clients[client_idx]->game_idx]->players)[i]->client_idx == client_idx){
+
+                pthread_cond_broadcast(&(games[clients[client_idx]->game_idx]->p2p_ready));
+            }
+        }
+        pthread_mutex_unlock(gameMutexes + clients[client_idx]->game_idx);
+    }
+    pthread_mutex_unlock(clientMutexes + client_idx);
 
     return 0;
 }
