@@ -22,7 +22,7 @@ int main(){
     sint.sa_handler = sig_handler;
     sigemptyset(&(sterm.sa_mask));
     sigaddset(&(sterm.sa_mask), SIGTERM);
-    sigaction(SIGINT, &sterm, NULL);
+    sigaction(SIGTERM, &sterm, NULL);
 
     // Main loop listening for client connections, ready to accept them as sufficient resources become available.
     while(1){
@@ -30,7 +30,7 @@ int main(){
         socklen_t sizeof_clientaddrIn = sizeof(struct sockaddr_in);
 
         int client_fd = accept(socket_fd, (struct sockaddr*) &clientaddrIn, &sizeof_clientaddrIn);
-        if(client_fd < 0){
+        if(sig_raised < 1 && client_fd < 0){
             mrerror("Error on attempt to accept client connection");
         }
 
@@ -57,7 +57,8 @@ void sig_handler(){
         }
 
         printf("All clients disconnected...goodbye!\n");
-        kill(getpid(), SIGINT);
+
+	exit(1);
     }
 }
 
