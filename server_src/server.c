@@ -1194,8 +1194,9 @@ int handle_score_update_msg(char* chat_msg, int client_idx){
     if(clients[client_idx] != NULL){
         pthread_mutex_lock(gameMutexes + clients[client_idx]->game_idx);
         for(int i = 0; i < N_SESSION_PLAYERS; i++){
-            if((games[clients[client_idx]->game_idx]->players)[i] != NULL &&
-                (games[clients[client_idx]->game_idx]->players)[i]->client_idx == client_idx){
+            if((games[clients[client_idx]->game_idx]->players)[i] != NULL
+                && (games[clients[client_idx]->game_idx]->players)[i]->client_idx == client_idx
+                && (games[clients[client_idx]->game_idx]->players)[i]->state == CONNECTED){
 
                 (games[clients[client_idx]->game_idx]->players)[i]->score = strtol(chat_msg, NULL, 10);
             }
