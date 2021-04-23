@@ -422,10 +422,9 @@ void* service_game_request(void* arg){
                 }
             }
 
-            int n_players_p2p_ready = 0;
-            while(n_players_p2p_ready < n_players){
+            games[game_idx]->n_players_p2p_ready = 0;
+            while(games[game_idx]->n_players_p2p_ready < n_players){
                 pthread_cond_wait(&(games[game_idx]->p2p_ready), gameMutexes + game_idx);
-                n_players_p2p_ready++;
             }
 
             msg start_game_msg;
@@ -1332,6 +1331,7 @@ int handle_p2p_read_msg(char* chat_msg, int client_idx){
             if((games[clients[client_idx]->game_idx]->players)[i] != NULL &&
                 (games[clients[client_idx]->game_idx]->players)[i]->client_idx == client_idx){
 
+		(games[clients[client_idx]->game_idx]->n_players_p2p_ready)++;
                 pthread_cond_broadcast(&(games[clients[client_idx]->game_idx]->p2p_ready));
             }
         }

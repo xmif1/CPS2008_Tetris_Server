@@ -55,6 +55,7 @@ typedef struct{
 typedef struct{
     ingame_client* players[N_SESSION_PLAYERS];
     pthread_cond_t p2p_ready;
+    int n_players_p2p_ready;
     int top_three[3];
     int game_idx;
     int game_type;
