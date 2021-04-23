@@ -117,8 +117,8 @@ char* sfunc_dict[N_SFUNCS] = {"!leaderboard", "!players", "!playerstats", "!batt
 void (*sfunc[])(int argc, char *argv[], int client_idx) = {&sfunc_leaderboard, &sfunc_players, &sfunc_playerstats,
                                                            &sfunc_battle, &sfunc_quick, &sfunc_chill, &sfunc_go,
                                                            &sfunc_ignore, &sfunc_nickname, &sfunc_help};
-enum MsgType {CHAT = 0, SCORE_UPDATE = 1, NEW_GAME = 2, FINISHED_GAME = 3, P2P_READY = 4, CLIENTS_CONNECTED = 5,
-              START_GAME = 6};
+enum MsgType {INVALID = -2, EMPTY = -1, CHAT = 0, SCORE_UPDATE = 1, NEW_GAME = 2, FINISHED_GAME = 3, P2P_READY = 4,
+              CLIENTS_CONNECTED = 5, START_GAME = 6};
 enum GameType {RISING_TIDE = 0, FAST_TRACK = 1, BOOMER = 2};
 enum State {WAITING = 0, CONNECTED = 1, FINISHED = 2, DISCONNECTED = 3};
 
