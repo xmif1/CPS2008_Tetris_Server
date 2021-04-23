@@ -373,18 +373,27 @@ void* service_game_request(void* arg){
 
             sprintf(new_game_msg_header, "%d", games[game_idx]->game_type);
             strcat(new_game_msg_header, "::");
-            sprintf(new_game_msg_header, "%d", games[game_idx]->n_baselines);
-            strcat(new_game_msg_header, "::");
-            sprintf(new_game_msg_header, "%d", games[game_idx]->n_winlines);
-            strcat(new_game_msg_header, "::");
-            sprintf(new_game_msg_header, "%d", games[game_idx]->time);
 
-            char new_game_msg_tail[n_players*UNAME_LEN];
+            char baselines_str[4];
+            sprintf(baselines_str, "%d", games[game_idx]->n_baselines);
+            strcat(new_game_msg_header, baselines_str);
+            strcat(new_game_msg_header, "::");
+
+            char winlines_str[4];
+            sprintf(winlines_str, "%d", games[game_idx]->n_winlines);
+            strcat(new_game_msg_header, winlines_str);
+            strcat(new_game_msg_header, "::");
+
+            char time_str[4];
+            sprintf(time_str, "%d", games[game_idx]->time);
+            strcat(new_game_msg_header, time_str);
+
+            char new_game_msg_tail[n_players*UNAME_LEN]; strcpy(new_game_msg_tail, "\0");
 
             for(int i = 0; i < N_SESSION_PLAYERS; i++){
                 if((games[game_idx]->players)[i] != NULL){
                     strcat(new_game_msg_tail, "::");
-                    strcpy(new_game_msg_tail, (games[game_idx]->players)[i]->ip);
+                    strcat(new_game_msg_tail, (games[game_idx]->players)[i]->ip);
                 }
             }
 
@@ -402,7 +411,11 @@ void* service_game_request(void* arg){
                     new_game_msg.msg_type = NEW_GAME;
                     strcpy(new_game_msg.msg, new_game_msg_header);
                     strcat(new_game_msg.msg, "::");
-                    sprintf(new_game_msg.msg, "%d", port_block_offset);
+
+                    char port_block_offset_str[4];
+                    sprintf(port_block_offset_str, "%d", port_block_offset);
+                    strcat(new_game_msg.msg, port_block_offset_str);
+
                     strcat(new_game_msg.msg, new_game_msg_tail);
 
                     client_msg(new_game_msg, (games[game_idx]->players)[i]->client_idx);
