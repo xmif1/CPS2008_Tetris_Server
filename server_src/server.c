@@ -1219,7 +1219,7 @@ int handle_finished_game_msg(char* chat_msg, int client_idx){
     }
     pthread_mutex_unlock(clientMutexes + client_idx);
 
-    if(game_idx > 0){
+    if(game_idx >= 0){
         pthread_mutex_lock(gameMutexes + game_idx);
 
         for(; player_idx < N_SESSION_PLAYERS; player_idx++){
@@ -1227,6 +1227,8 @@ int handle_finished_game_msg(char* chat_msg, int client_idx){
                 (games[game_idx]->players)[player_idx]->state = FINISHED;
             }
         }
+
+        printf("here!\n");
 
         if(games[game_idx]->game_type == RISING_TIDE){
             // shift down rankings; last player standing gets first place, etc
@@ -1282,15 +1284,26 @@ int handle_finished_game_msg(char* chat_msg, int client_idx){
             strcpy(finished_msg.msg, "All players have completed the game! The top players are, in highest ranking order:");
 
             for(int i = 0; i < 3; i++){
-                if((games[game_idx]->top_three)[i] >= 0){
+		printf("%d\n", (games[game_idx]->top_three)[i]); //debug
+	    }
+
+            for(int i = 0; i < 3; i++){
+                if((games[game_idx]->top_three)[i] >= 0 && i < games[game_idx]->n_players){
                     strcat(finished_msg.msg, "\n\t");
                     strcat(finished_msg.msg, (games[game_idx]->players)[(games[game_idx]->top_three)[i]]->nickname);
                     strcat(finished_msg.msg, " with a score of ");
-                    sprintf(finished_msg.msg, "%d", (games[game_idx]->players)[(games[game_idx]->top_three)[i]]->score);
+		    printf("finished game called by %d\n", i); //debug
+
+		    char score[7];
+                    sprintf(score, "%d", (games[game_idx]->players)[(games[game_idx]->top_three)[i]]->score);
+		    strcat(finished_msg.msg, score);
+		    printf("finished game called by %d\n", i); //debug
+
                     strcat(finished_msg.msg, " points.");
                 }
             }
 
+	    printf("%s\n", finished_msg.msg); //debug
             int winner_idx = (games[game_idx]->players)[(games[game_idx]->top_three)[0]]->client_idx;
 
             for(int i = 0; i < N_SESSION_PLAYERS; i++){
