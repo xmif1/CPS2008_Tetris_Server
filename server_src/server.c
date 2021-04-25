@@ -1228,8 +1228,6 @@ int handle_finished_game_msg(char* chat_msg, int client_idx){
             }
         }
 
-        printf("here!\n");
-
         if(games[game_idx]->game_type == RISING_TIDE){
             // shift down rankings; last player standing gets first place, etc
             (games[game_idx]->top_three)[2] = (games[game_idx]->top_three)[1];
@@ -1282,10 +1280,6 @@ int handle_finished_game_msg(char* chat_msg, int client_idx){
                 mrerror("Error encountered while allocating memory");
             }
             strcpy(finished_msg.msg, "All players have completed the game! The top players are, in highest ranking order:");
-
-            for(int i = 0; i < 3; i++){
-		printf("%d\n", (games[game_idx]->top_three)[i]); //debug
-	    }
 
             for(int i = 0; i < 3; i++){
                 if((games[game_idx]->top_three)[i] >= 0 && i < games[game_idx]->n_players){
