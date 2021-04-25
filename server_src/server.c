@@ -1225,6 +1225,7 @@ int handle_finished_game_msg(char* chat_msg, int client_idx){
         for(; player_idx < N_SESSION_PLAYERS; player_idx++){
             if((games[game_idx]->players)[player_idx] != NULL && (games[game_idx]->players)[player_idx]->client_idx == client_idx){
                 (games[game_idx]->players)[player_idx]->state = FINISHED;
+                break;
             }
         }
 
@@ -1286,18 +1287,15 @@ int handle_finished_game_msg(char* chat_msg, int client_idx){
                     strcat(finished_msg.msg, "\n\t");
                     strcat(finished_msg.msg, (games[game_idx]->players)[(games[game_idx]->top_three)[i]]->nickname);
                     strcat(finished_msg.msg, " with a score of ");
-		    printf("finished game called by %d\n", i); //debug
 
 		    char score[7];
                     sprintf(score, "%d", (games[game_idx]->players)[(games[game_idx]->top_three)[i]]->score);
 		    strcat(finished_msg.msg, score);
-		    printf("finished game called by %d\n", i); //debug
 
                     strcat(finished_msg.msg, " points.");
                 }
             }
 
-	    printf("%s\n", finished_msg.msg); //debug
             int winner_idx = (games[game_idx]->players)[(games[game_idx]->top_three)[0]]->client_idx;
 
             for(int i = 0; i < N_SESSION_PLAYERS; i++){
