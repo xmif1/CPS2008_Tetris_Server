@@ -220,11 +220,11 @@ void* service_client(void* arg){
             break;
         }
 
-        char* token = strtok(header, "::");
-        recv_str_len = strtol(token, NULL, 10);
+	printf("client %d: %s", client_idx, header); //debug
 
-        token = strtok(NULL, "::");
-        msg_type = strtol(token, NULL, 10);
+	char str_len_part[5]; strncpy(str_len_part, header, 4); str_len_part[4] = '\0';
+        recv_str_len = strtol(str_len_part, NULL, 10);
+        msg_type = header[6] - '0';
 
         char* recv_str = malloc(recv_str_len);
         if(recv_str == NULL){
@@ -241,6 +241,8 @@ void* service_client(void* arg){
         if(break_while_loop){
             break;
         }
+
+	printf("%s\n", recv_str); // debug
 
         switch(msg_type){
             case CHAT: break_while_loop = handle_chat_msg(recv_str, client_idx); break;
