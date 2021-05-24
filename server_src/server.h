@@ -63,6 +63,7 @@ typedef struct{
     int n_baselines;
     int n_winlines;
     int time;
+    int seed;
 }game_session;
 
 typedef struct{
@@ -120,7 +121,7 @@ void (*sfunc[])(int argc, char *argv[], int client_idx) = {&sfunc_leaderboard, &
                                                            &sfunc_ignore, &sfunc_nickname, &sfunc_help};
 enum MsgType {INVALID = -2, EMPTY = -1, CHAT = 0, SCORE_UPDATE = 1, NEW_GAME = 2, FINISHED_GAME = 3, P2P_READY = 4,
               CLIENTS_CONNECTED = 5, START_GAME = 6};
-enum GameType {RISING_TIDE = 0, FAST_TRACK = 1, BOOMER = 2};
+enum GameType {RISING_TIDE = 0, FAST_TRACK = 1, BOOMER = 2, CHILL = 3};
 enum State {WAITING = 0, CONNECTED = 1, FINISHED = 2, DISCONNECTED = 3};
 
 #endif //CPS2008_TETRIS_SERVER_H
