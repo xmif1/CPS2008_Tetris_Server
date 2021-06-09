@@ -1,6 +1,19 @@
 #include "server.h"
 
+/* Main function, which is responsible to initialising the server instance. First, a call to server_init() is made,
+ * which initialises a socket for accepting client connections. The corresponding file descriptor is returned and held.
+ *
+ * The the clients and game session arrays of structs along with their associated mutexes are initialised, for atomic
+ * thread--safe access to the respective array elements.
+ *
+ * After which, signal handlers for SIGINT and SIGTERM are installed. Termination of the server can be done by
+ * interrupting the program (since the main loop is indefinite). The signal handlers ensure graceful termination and are
+ * described in detail later on.
+ *
+ * The main loop is then executed, which simply accepts new client connections and calls add_client as necessary.
+ */
 int main(){
+    // initialise socket for accepting client connections
     int socket_fd = server_init();
 
     // Initialise clients and games arrays to NULLs, as well as atomic clients and game session thread mutexes
@@ -12,12 +25,14 @@ int main(){
         pthread_mutex_init(&gameMutexes[i], NULL);
     }
 
+    // install SIGINT handler
     struct sigaction sint;
     sint.sa_handler = sig_handler;
     sigemptyset(&(sint.sa_mask));
     sigaddset(&(sint.sa_mask), SIGINT);
     sigaction(SIGINT, &sint, NULL);
 
+    // install SIGTERM handler
     struct sigaction sterm;
     sint.sa_handler = sig_handler;
     sigemptyset(&(sterm.sa_mask));
@@ -26,30 +41,43 @@ int main(){
 
     // Main loop listening for client connections, ready to accept them as sufficient resources become available.
     while(1){
+        // initialise struct for maintaining networking details of client
         struct sockaddr_in clientaddrIn;
         socklen_t sizeof_clientaddrIn = sizeof(struct sockaddr_in);
 
+        // call accept (in blocking mode) on socket_fd
         int client_fd = accept(socket_fd, (struct sockaddr*) &clientaddrIn, &sizeof_clientaddrIn);
+
+        // if signal has NOT been raised and in return client_fd is invalid on attempt to accept client connection
         if(sig_raised < 1 && client_fd < 0){
+            // display error and terminate erroneously
             mrerror("Error on attempt to accept client connection");
         }
 
+        // otherwise if client_fd is valid, call add_client
         add_client(client_fd, clientaddrIn);
     }
 }
 
+// A simple signal handler to in particular disconnect clients gracefully.
 void sig_handler(){
+    // if signal has not been raised apriori (to prevent multiple threads trying to handle the signal)
     if(sig_raised < 1){
         sig_raised++;
 
         printf("\nServer is shutting down...disconnecting clients...\n");
 
+        // gracefully disconnect clients connected
         for(int i = 0; i < MAX_CLIENTS; i++){
             if(clients[i] != NULL){
+                // first cancel the thread that handles communication with the client
                 pthread_cancel(service_threads[i]);
 
-                close(clients[i]->client_fd);
+                close(clients[i]->client_fd); // then close the connection by closing the file descriptor
+                // as a result, on the next attempt by the client to send or recv from the server, the call would return
+                // erroneously, and the client library has mechanisms to handle this and disconnect from their end
 
+                // we then free the associated memory
                 free(clients[i]);
                 clients[i] = NULL;
                 n_clients--;
@@ -58,10 +86,15 @@ void sig_handler(){
 
         printf("All clients disconnected...goodbye!\n");
 
-	exit(1);
+	    exit(1); // finally, we can exit
     }
 }
 
+/* Convenience function for initialising a socket on which we can accept client connections. We shall see this pattern of
+ * socket initialisation a number of times throughout the project. Based on the parameters defined in the header, we
+ * create a new socket, attempt to bind it, if successful we attempt to listen on the socket, and in turn if that is
+ * successful we return the file descriptor of the socket.
+ */
 int server_init(){
     int socket_fd;
 
@@ -70,7 +103,7 @@ int server_init(){
 
     // Create socket
     socket_fd = socket(SDOMAIN, TYPE, 0);
-    if(socket_fd < 0){
+    if(socket_fd < 0){ // check if valid
         mrerror("Socket initialisation failed");
     }
 
@@ -92,37 +125,50 @@ int server_init(){
     return socket_fd;
 }
 
+/* Convenience function for adding a client to the server, which in particular ensures that the maximum number of clients
+ * currently connected to the server has not been exceeded (in which case we disconnect the client). If the client can be
+ * connected, we allocate a random nickname to the client, find the first available free index in the clients array and
+ * allocate a new client struct at that index, along with an associated mutex.
+ */
 void add_client(int client_fd, struct sockaddr_in clientaddrIn){
+    // first check if maximum number of connected clients has not been exceeded
     if(n_clients < MAX_CLIENTS - 1){ // if further resource constraints exist, add them here
+        // generate random nickname using gen_nickname convenience function
         char nickname[UNAME_LEN] = {0}; gen_nickname(nickname);
 
+        // in a thread--safe manner, find the next available free index in the clients array
         int i = 0;
         for(; i < MAX_CLIENTS; i++){
             pthread_mutex_lock(clientMutexes + i);
             if(clients[i] == NULL){
-                break;
+                break; // i corresponds to a free slot; note that in this case the mutex lock is not released
+                // (i.e. slot cannot be populated by some other thread)
             }
             else{
                 pthread_mutex_unlock(clientMutexes + i);
             }
         }
 
-        clients[i] = malloc(sizeof(client));
-        clients[i]->client_fd = client_fd;
+        // initialise the client struct at the i^th index
+        clients[i] = malloc(sizeof(client)); // create new client struct
+        clients[i]->client_fd = client_fd; // set to fd obtained during connection
         clients[i]->client_idx = i;
-        clients[i]->clientaddrIn = clientaddrIn;
-        clients[i]->game_idx = -1;
+        clients[i]->clientaddrIn = clientaddrIn; // maintain in particular the IPv4 address of the client, for P2P use later
+        clients[i]->game_idx = -1; // game_idx = -1 indicates the client is not joined to a game_session
         clients[i]->high_score = 0;
         clients[i]->n_wins = 0;
         clients[i]->n_losses = 0;
         strcpy(clients[i]->nickname, nickname);
 
+        // create new thread to handle communication with the client
         if(pthread_create(service_threads + i, NULL, service_client, (void*) clients[i]) != 0){
             mrerror("Error while creating thread to service newly connected client");
         }
 
+        // increment by 1 (used to keep track if the max. no. of connected clients has been achieved)
         n_clients++;
 
+        // release mutex lock corresponding to the client
         pthread_mutex_unlock(clientMutexes + i);
 
         msg joined_msg;
@@ -131,42 +177,60 @@ void add_client(int client_fd, struct sockaddr_in clientaddrIn){
             mrerror("Error encountered while allocating memory");
         }
 
+        // send message to the client, informing them that they have successfully join the server, and specify their nickname
         joined_msg.msg_type = CHAT;
         strcpy(joined_msg.msg, "Connected...your nickname is ");
         strcat(joined_msg.msg, nickname);
         strcat(joined_msg.msg, ".");
-        client_msg(joined_msg, i);
-    }else{
+        client_msg(joined_msg, i); // client_msg is a convience function outlined later on to handle sending msgs to clients
+    }else{ // if maximum number of clients has been exceeded, send an appropriate message to the client and disconnect
         msg err_msg;
         err_msg.msg = malloc(80);
         if(err_msg.msg == NULL){
             mrerror("Error encountered while allocating memory");
         }
 
+        // inform the client that the maximum number of clients has been achieved 
         err_msg.msg_type = CHAT;
-        strcpy(err_msg.msg, "Maximum number of clients acheived: unable to connect at the moment.");
+        strcpy(err_msg.msg, "Maximum number of clients achieved: unable to connect at the moment.");
 
+        // attempt to send to the client
         if(send(client_fd, (void*) &err_msg, sizeof(msg), 0) < 0){
             smrerror("Error encountered while communicating with new client");
         }
 
+        // and then disconnect by closing the file descriptor
         close(client_fd);
     }
 }
 
+/* Convenience function for removing a client in a thread--safe manner. Note that it is important, before any call to
+ * remove_client, to ensure that the corresponding mutex is released (as otherwise the calling thread would hang
+ * indefinitely, which was a bug experienced during development).
+ *
+ * Removal of a client involves:
+ * (i)   If the client is in a game session, the game struct is changed to reflect client disconnection (which is required
+ *       when tallying up the final scores). Note that the game session continues.
+ * (ii)  We then close the connection to the client and free any associated memory.
+ * (iii) We send a message to all remaining clients informing them of the disconnection.
+ */
 void remove_client(int client_idx){
-    pthread_mutex_lock(clientMutexes + client_idx);
-    if(clients[client_idx] != NULL){
-        int game_idx = clients[client_idx]->game_idx;
-        pthread_mutex_lock(gameMutexes + game_idx);
-        if(game_idx >= 0 && games[game_idx] != NULL){
-            for(int i = 0; i < N_SESSION_PLAYERS; i++){
-                if((games[game_idx]->players)[i] != NULL && (games[game_idx]->players)[i]->client_idx == client_idx){
-                    (games[game_idx]->players)[i]->state = DISCONNECTED;
+    pthread_mutex_lock(clientMutexes + client_idx); // obtain lock corresponding to client
+
+    if(clients[client_idx] != NULL){ // if valid client struct at client_idx
+        int game_idx = clients[client_idx]->game_idx; // hold reference to game_idx
+
+        if(game_idx >= 0){ // if client is in some game session (recall game_idx == -1 iff not in game session)
+            pthread_mutex_lock(gameMutexes + game_idx); // obtain mutex for corresponding game session
+            if(games[game_idx] != NULL){ // if game struct at game_idx is valid
+                for(int i = 0; i < N_SESSION_PLAYERS; i++){ // find corresponding player entry in struct and mark as DISCONNECTED
+                    if((games[game_idx]->players)[i] != NULL && (games[game_idx]->players)[i]->client_idx == client_idx){
+                        (games[game_idx]->players)[i]->state = DISCONNECTED;
+                    }
                 }
             }
+            pthread_mutex_unlock(gameMutexes + game_idx); // release mutex lock for corresponding game session
         }
-        pthread_mutex_unlock(gameMutexes + game_idx);
 
         msg send_msg;
         send_msg.msg = malloc(32 + UNAME_LEN);
@@ -174,19 +238,22 @@ void remove_client(int client_idx){
             mrerror("Error encountered while allocating memory");
         }
 
+        // prepare message to send to remaining clients after disconnection, informing them client X has disconnected
         send_msg.msg_type = CHAT;
         strcpy(send_msg.msg, "Player ");
         strcat(send_msg.msg, clients[client_idx]->nickname);
         strcat(send_msg.msg, " has disconnected.");
 
-        close(clients[client_idx]->client_fd);
+        close(clients[client_idx]->client_fd); // close connection with client
 
+        // free memory are necessary, and decrement n_clients (to allows other clients to connect instead)
         free(clients[client_idx]);
         clients[client_idx] = NULL;
         n_clients--;
 
-        pthread_mutex_unlock(clientMutexes + client_idx);
+        pthread_mutex_unlock(clientMutexes + client_idx); // release lock corresponding to now free client entry
 
+        // make a call to client_msg for each possible client (if no clients[i] == NULL, client_msg handles this accordingly)
         for(int i = 0; i < MAX_CLIENTS; i++){
        	    client_msg(send_msg, i);
         }
@@ -198,20 +265,35 @@ void remove_client(int client_idx){
 
 /* -------- THREADED FUNCTIONS -------- */
 
+/* This threaded function handles communication with the client, by first fetching and decoding a recieved message and
+ * then handling the message accordingly, depending on the contents of the data part.
+ *
+ * Decoding of messages is outlined in further detail in the project report. Note that since we are using the TCP protocol,
+ * data is streamed (and hence received) by the server in the same order as that sent by the client.
+ */
 void* service_client(void* arg){
     pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);
 
+    // extract data passed to the thread
     int client_fd = ((client*) arg)->client_fd;
     int client_idx = ((client*) arg)->client_idx;
 
-    int break_while_loop = 0;
+    int break_while_loop = 0; // flag to break main loop for recieving messages
+
+    // variables used to maintain the msg type, total bytes read (tbr), number of bytes received from last call to recv,
+    // and the expected length of the next data part
     int msg_type, tbr, recv_bytes, recv_str_len;
+
+    // initialise char array to keep header of message
     char header[HEADER_SIZE]; header[HEADER_SIZE - 1] = '\0';
 
+    // loop indefinitely until break_while_loop is 1 OR recv return erroneously OR signal is raised
+    // initial call to recv on each iteration attempts to fetch the header of the message first
     while((recv_bytes = recv(client_fd, (void*) &header, HEADER_SIZE - 1, 0)) > 0){
+        // ensure that the header is recieved entirely (keep on looping until tbr == HEADER_SIZE - 1)
         for(tbr = recv_bytes; tbr < HEADER_SIZE - 1; tbr += recv_bytes){
             if((recv_bytes = recv(client_fd, (void*) (&header + tbr), HEADER_SIZE - tbr - 1, 0)) < 0){
-                break_while_loop= 1;
+                break_while_loop = 1; // break if erroneous i.e. we have not managed to fetch a complete message header
                 break;
             }
         }
@@ -220,20 +302,23 @@ void* service_client(void* arg){
             break;
         }
 
-	    printf("client %d: %s", client_idx, header); //debug
+	    printf("client %d: %s", client_idx, header); // print header contents to terminal, handy for testing purposes
 
+	    // decode the header by extracting the expected length of the data part and the message type
 	    char str_len_part[5]; strncpy(str_len_part, header, 4); str_len_part[4] = '\0';
         recv_str_len = strtol(str_len_part, NULL, 10);
         msg_type = header[6] - '0';
 
+        // initialise array of decoded data part length, in which data part will be stored
         char* recv_str = malloc(recv_str_len);
         if(recv_str == NULL){
             mrerror("Error while allocating memory");
         }
 
+        // reset tbr to 0, loop until the successive calls to recv yield the entire data part
         for(tbr = 0; tbr < recv_str_len; tbr += recv_bytes){
             if((recv_bytes = recv(client_fd, (void*) recv_str + tbr, recv_str_len - tbr, 0)) < 0){
-                break_while_loop = 1;
+                break_while_loop = 1; // break if erroneous i.e. we have not managed to fetch the complete data part
                 break;
             }
         }
@@ -242,8 +327,10 @@ void* service_client(void* arg){
             break;
         }
 
-	    printf("%s\n", recv_str); // debug
+	    printf("%s\n", recv_str); // print data part contents to terminal, handy for testing purposes
 
+	    // depending on the decoded message type from the header, call the respective handler function
+	    // each of which, and any further functions called by them, must be thread--safe
         switch(msg_type){
             case CHAT: break_while_loop = handle_chat_msg(recv_str, client_idx); break;
             case SCORE_UPDATE: break_while_loop = handle_score_update_msg(recv_str, client_idx); break;
@@ -252,17 +339,28 @@ void* service_client(void* arg){
             default: break_while_loop = 0;
         }
 
-        free(recv_str);
+        free(recv_str); // free memory as necessary
 
         if(break_while_loop){
             break;
         }
     }
 
+    // once main loop terminates, then we cannot recieve further message from the client and hence we disconnect
     remove_client(client_idx);
+
+    // we can then exit the service_client thread
     pthread_exit(NULL);
 }
 
+/* This threaded function is responsible for the creation of a new game session and ensuring the clients in a game session
+ * are ready to accept peer-to-peer connections. It is NOT responsible for game option validation (this must be done by
+ * the calling function) however it does send the game options in the invite sent to all invited clients, in the case of
+ * multiplayer mode.
+ *
+ * A flow--chart of the interaction between the service_game_request thread, the service_client thread, as well as the
+ * client library, is given in the project report.
+ */
 void* service_game_request(void* arg){
     int game_idx = *((int*) arg);
 
@@ -456,6 +554,12 @@ void* service_game_request(void* arg){
 }
 
 /* ------ SERVER FUNCTIONS (sfunc) ------ */
+
+/* This section outlines a number of handler functions corresponding to different tagged messages and commands sent to
+ * the server by a client. Note that these execute on the calling thread, i.e. multiple simultaneous calls can be made
+ * to the same function from different threads, accessing the same data etc. Hence each of these functions MUST be
+ * thread--safe.
+ */
 
 void sfunc_leaderboard(int argc, char* argv[], int client_idx){}
 
@@ -1098,90 +1202,118 @@ void sfunc_msg(int argc, char* argv[], int client_idx){
 
 /* --------- UTILITY FUNCTIONS --------- */
 
+// Generates a random and unique nickname for a newly connected client.
 void gen_nickname(char nickname[UNAME_LEN]){
+    // define dictionary from which we can select words to generate a nickname
+    // nicknames will be of the form keyword1 + keyword2 + random number
     char* keywords1[6] = {"Big", "Little", "Cool", "Lame", "Happy", "Sad"};
     char* keywords2[5] = {"Mac", "Muppet", "Hobbit", "Wizard", "Elf"};
-    int not_unique = 1;
+    int not_unique = 1; // flag for checking if (not) unique
 
-    while(not_unique){
+    while(not_unique){ // keep on looping until unique nickname is found
+        // generate random number such that total number of combinations with keywords is >= MAX_CLIENTS
+        // (i.e. the algorithm can always find a unique nickname for a client)
         int i = rand() % 6, j = rand() % 5, k = (rand() % MAX_CLIENTS) + 1;
         char str_k[(int) floor(log10(k))+2];
         sprintf(str_k, "%d", k);
 
+        // concat to generate nickname
         strcpy(nickname, keywords1[i]);
         strcat(nickname, keywords2[j]);
         strcat(nickname, str_k);
 
-        not_unique = nickname_uniqueQ(nickname);
+        not_unique = nickname_uniqueQ(nickname); // convenience function to checks if a nickname is already in use
     }
 }
 
 // Returns 1 if the nickname is not unique, 0 otherwise.
 int nickname_uniqueQ(char nickname[UNAME_LEN]){
+    // loop throughout the clients array
     for(int i = 0; i < MAX_CLIENTS; i++){
+        // obtain mutex lock
         pthread_mutex_lock(clientMutexes + i);
         if(clients[i] == NULL){
+            // if not initialised, release mutex lock immediately
             pthread_mutex_unlock(clientMutexes + i);
         }
         else if(strcmp(nickname, clients[i]->nickname) == 0){
+            // if matched, return 1 i.e. nickname already in use, and release mutex lock
             pthread_mutex_unlock(clientMutexes + i);
             return 1;
         }else{
+            // else release mutex lock and continue looping until return 1 or i == MAX_CLIENTS (in which case no match found)
             pthread_mutex_unlock(clientMutexes + i);
         }
     }
 
-    return 0;
+    return 0; // reachable only if no match found i.e. nickname not in use and hence unique
 }
 
+/* Utility function used to send a message to a client, taking care of encoding the message (as described in detail in
+ * the project report), ensuring that the entire message is sent, and carrying out suitable error checks and handling.
+ */
 void client_msg(msg send_msg, int client_idx){
+    // initialise necessary variables for encoding the message
     int msg_len = strlen(send_msg.msg) + 1;
-    int str_to_send_len = HEADER_SIZE + msg_len - 1;
+    int str_to_send_len = HEADER_SIZE + msg_len - 1; // enough space for the header + data part + null character
     char header[HEADER_SIZE];
     char* str_to_send = malloc(str_to_send_len);
 
+    // if allocation of memory for holding the message to send failed, report an error and exit
     if(str_to_send == NULL){
         mrerror("Failed to allocate memory for message send");
     }
 
+    // the header must always be of fixed size, with the data part length having MSG_LEN_DIGITS; if the required number
+    // of digits is less than MSG_LEN_DIGITS, we prepend the required number of 0s to the header
     int i = 0;
     for(; i < MSG_LEN_DIGITS - ((int) floor(log10(msg_len)) + 1); i++){
         header[i] = '0';
     }
 
-    sprintf(header + i, "%d", msg_len);
-    strcat(header, "::");
-    sprintf(header + MSG_LEN_DIGITS + 2, "%d", send_msg.msg_type);
-    strcat(header, "::");
+    sprintf(header + i, "%d", msg_len); // concat the data part length
+    strcat(header, "::"); // concat the separation token
+    sprintf(header + MSG_LEN_DIGITS + 2, "%d", send_msg.msg_type); // concat the message type
+    strcat(header, "::"); // concat the separation token
 
-    strcpy(str_to_send, header);
-    strcat(str_to_send, send_msg.msg);
+    strcpy(str_to_send, header); // copy the header to the string holding the final message string to be sent
+    strcat(str_to_send, send_msg.msg); // append the data part to this string
     str_to_send[str_to_send_len-1] = '\0'; // ensure null terminated
 
-    pthread_mutex_lock(clientMutexes + client_idx);
-    if(clients[client_idx] != NULL){
+    pthread_mutex_lock(clientMutexes + client_idx); // obtain mutex lock for client to which we are sending the message
+    if(clients[client_idx] != NULL){ // if there is a valid client struct at client_idx
         int tbs; // tbs = total bytes sent
         int sent_bytes;
         int fail_flag = 0;
 
+        // make successive calls to send() until the entire message is sent or an error occurs
         for(tbs = 0; tbs < str_to_send_len; tbs += sent_bytes){
             if((sent_bytes = send(clients[client_idx]->client_fd, (void*) str_to_send + tbs, str_to_send_len - tbs, 0)) < 0){
+                /* In the case an error occurs during a call to send() with a client, we must handle this appropriate to
+                 * ensure graceful disconnection and prevent any threads from hanging. Hence we,
+                 * (i)   First make a call to cancel the corresponding service_client thread.
+                 * (ii)  Then release the corresponding mutex lock.
+                 * (iii) And finally call remove_client to gracefully disconnect the client, free associated memory, etc.
+                 */
+
                 pthread_cancel(service_threads[client_idx]);
                 pthread_mutex_unlock(clientMutexes + client_idx);
                 remove_client(client_idx);
+
+                // set fail flag to prevent calling unlock on the same mutex in succession, which can lead to undefined behaviour
                 fail_flag = 1;
                 break;
             }
         }
 
-        if(!fail_flag){
+        if(!fail_flag){ // prevent calling unlock on the same mutex twice in succession leading to undefined behaviour
             pthread_mutex_unlock(clientMutexes + client_idx);
         }
     }else{
         pthread_mutex_unlock(clientMutexes + client_idx);
     }
 
-    free(str_to_send);
+    free(str_to_send); // free memory as necessary
 }
 
 int handle_chat_msg(char* chat_msg, int client_idx){
