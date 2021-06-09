@@ -366,6 +366,7 @@ void* service_game_request(void* arg){
 
     pthread_mutex_lock(gameMutexes + game_idx);
     int game_type = games[game_idx]->game_type;
+
     if(games[game_idx] != NULL && game_type != CHILL){
         msg request_msg;
         request_msg.msg = malloc(256 + (N_SESSION_PLAYERS + 1)*UNAME_LEN);
@@ -490,9 +491,10 @@ void* service_game_request(void* arg){
             char time_str[4];
             sprintf(time_str, "%d", games[game_idx]->time);
             strcat(new_game_msg_header, time_str);
+            strcat(new_game_msg_header, "::");
 
             char seed_str[4];
-            sprintf(time_str, "%d", games[game_idx]->seed);
+            sprintf(seed_str, "%d", games[game_idx]->seed);
             strcat(new_game_msg_header, seed_str);
 
             char new_game_msg_tail[n_players*UNAME_LEN]; strcpy(new_game_msg_tail, "\0");
@@ -896,6 +898,7 @@ void sfunc_quick(int argc, char* argv[], int client_idx){
             strcpy((games[game_idx]->players)[0]->nickname, clients[client_idx]->nickname);
             inet_ntop(AF_INET, &(clients[client_idx]->clientaddrIn.sin_addr), (games[game_idx]->players)[0]->ip, INET_ADDRSTRLEN);
 
+            games[game_idx]->game_type = rand() % 4;
             games[game_idx]->game_idx = game_idx;
             games[game_idx]->time = (rand() % TIME_DEFAULT) + 1;
             games[game_idx]->n_winlines = (rand() % WINLINES_DEFAULT) + 1;
@@ -975,6 +978,7 @@ void sfunc_chill(int argc, char* argv[], int client_idx){
     strcpy((games[game_idx]->players)[0]->nickname, clients[client_idx]->nickname);
     inet_ntop(AF_INET, &(clients[client_idx]->clientaddrIn.sin_addr), (games[game_idx]->players)[0]->ip, INET_ADDRSTRLEN);
 
+    games[game_idx]->game_type = CHILL;
     games[game_idx]->game_idx = game_idx;
     games[game_idx]->seed = rand() % 1000;
 
