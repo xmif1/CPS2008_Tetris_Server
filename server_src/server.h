@@ -67,6 +67,15 @@ typedef struct{
 }game_session;
 
 typedef struct{
+    char nickname[UNAME_LEN];
+    int score;
+}leaderboard_entry;
+
+typedef struct{
+    leaderboard_entry top_three[3];
+}leaderboard;
+
+typedef struct{
     int msg_type;
     char* msg;
 }msg;
@@ -114,12 +123,15 @@ pthread_t game_threads[MAX_CLIENTS];
 pthread_mutex_t clientMutexes[MAX_CLIENTS];
 pthread_mutex_t gameMutexes[MAX_CLIENTS];
 
+leaderboard leaderboards[4];
+pthread_mutex_t leaderboardMutex = PTHREAD_MUTEX_INITIALIZER;
+
 #define N_SFUNCS 10
 char* sfunc_dict[N_SFUNCS] = {"!leaderboard", "!players", "!playerstats", "!battle", "!quick", "!chill", "!go",
                               "!ignore", "!nickname", "!help"};
 void (*sfunc[])(int argc, char *argv[], int client_idx) = {&sfunc_leaderboard, &sfunc_players, &sfunc_playerstats,
                                                            &sfunc_battle, &sfunc_quick, &sfunc_chill, &sfunc_go,
-                                                           &sfunc_ignore, &sfunc_nickname, &sfunc_help};
+                                                           &sfunc_ignore, &sfunc_nickname, &sfunc_gamestats};
 enum MsgType {INVALID = -2, EMPTY = -1, CHAT = 0, SCORE_UPDATE = 1, NEW_GAME = 2, FINISHED_GAME = 3, P2P_READY = 4,
               CLIENTS_CONNECTED = 5, START_GAME = 6};
 enum GameType {RISING_TIDE = 0, FAST_TRACK = 1, BOOMER = 2, CHILL = 3};

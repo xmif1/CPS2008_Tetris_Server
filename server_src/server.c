@@ -16,13 +16,21 @@ int main(){
     // initialise socket for accepting client connections
     int socket_fd = server_init();
 
-    // Initialise clients and games arrays to NULLs, as well as atomic clients and game session thread mutexes
+    // initialise clients and games arrays to NULLs, as well as atomic clients and game session thread mutexes
     for(int i = 0; i < MAX_CLIENTS; i++){
         clients[i] = NULL;
         pthread_mutex_init(&clientMutexes[i], NULL);
 
         games[i] = NULL;
         pthread_mutex_init(&gameMutexes[i], NULL);
+    }
+
+    // initialise leaderboards
+    for(int i = 0; i < 4; i++){
+        for(int j = 0; j < 3; j++){
+            (leaderboards[i].top_three)[j].score = -1;
+            strcpy((leaderboards[i].top_three)[j].nickname, "");
+        }
     }
 
     // install SIGINT handler
@@ -672,7 +680,56 @@ void* service_game_request(void* arg){
  * thread--safe.
  */
 
-void sfunc_leaderboard(int argc, char* argv[], int client_idx){}
+// Simple function that writes to a message the contents of the leaderboards.
+void sfunc_leaderboard(int argc, char* argv[], int client_idx){
+    // initialise new msg instance and allocate enough memory for data part
+    msg leaderboard_msg;
+    leaderboard_msg.msg_type = CHAT;
+    leaderboard_msg.msg = malloc(512 + 9*UNAME_LEN);
+    if(leaderboard_msg.msg == NULL){
+        mrerror("Error encountered while allocating memory");
+    }
+
+    strcpy(leaderboard_msg.msg, "");
+
+    // write in message each and every leaderboard
+    for(int i = 0; i < 4; i++){
+        // first write the title of the leaderboard, depending on the game mode
+        if(i == RISING_TIDE){
+            strcat(leaderboard_msg.msg, "Rising Tide Leaderboard - ");
+        }
+        else if(i == FAST_TRACK){
+            strcat(leaderboard_msg.msg, "\nFast Track Leaderboard - ");
+        }
+        else if(i == BOOMER){
+            strcat(leaderboard_msg.msg, "\nBoomer Leaderboard - ");
+        }
+        else{
+            strcat(leaderboard_msg.msg, "\nChill Leaderboard - ");
+        }
+
+        strcat(leaderboard_msg.msg, "The top players are, in highest ranking order:");
+
+        for(int j = 0; j < 3; j++){
+            // if set i.e. enough games have been played / players joined for the j^th ranking to exist
+            if((leaderboards[i].top_three)[j].score >= 0){
+                // write nickname of the player
+                strcat(leaderboard_msg.msg, "\n\t");
+                strcat(leaderboard_msg.msg, (leaderboards[i].top_three)[j].nickname);
+                strcat(leaderboard_msg.msg, " with a score of ");
+
+                char score[7];
+                sprintf(score, "%d", (leaderboards[i].top_three)[j].score); // convert score from int to string
+                strcat(leaderboard_msg.msg, score); // then concat to message
+
+                strcat(leaderboard_msg.msg, " points.");
+            }
+        }
+    }
+
+    client_msg(leaderboard_msg, client_idx); // send leaderboard message to requesting client using client_msg function
+    free(leaderboard_msg.msg); // free memory as necessary
+}
 
 // Simple function that sends a message to the calling client with the list of nicknames for players available to join a game
 void sfunc_players(int argc, char* argv[], int client_idx){
@@ -1395,6 +1452,17 @@ void sfunc_nickname(int argc, char* argv[], int client_idx){
                 pthread_mutex_unlock(gameMutexes + game_idx); // release mutex lock for the game_session struct
             }
 
+            // similarly, update entires in leaderboard accordingly in a thread--safe manner
+            pthread_mutex_lock(&leaderboardMutex); // obtain mutex for leaderboards
+            for(int i = 0; i < 4; i++){
+                for(int j = 0; j < 3; j++){
+                    if(strcmp((leaderboards[i].top_three)[j].nickname, old_nickname) == 0){
+                        strcpy((leaderboards[i].top_three)[j].nickname, argv[1]);
+                    }
+                }
+            }
+            pthread_mutex_unlock(&leaderboardMutex); // release mutex for leaderboards
+
             // message to send to all other clients informing them of the nickname change
             strcpy(send_msg.msg, old_nickname);
             strcat(send_msg.msg, " has changed their nicknmame to ");
@@ -1826,7 +1894,9 @@ void gameFinishedQ(int game_idx, int remove_client_flag){
 
         pthread_mutex_lock(gameMutexes + game_idx);
 
-        if(games[game_idx]->game_type != CHILL){
+        int game_type = games[game_idx]->game_type;
+
+        if(game_type != CHILL){
             strcpy(finished_msg.msg, "All players have completed the game! The top players are, in highest ranking order:");
 
             for(int i = 0; i < 3; i++){
@@ -1884,6 +1954,33 @@ void gameFinishedQ(int game_idx, int remove_client_flag){
         }
 
         free(finished_msg.msg); // free memory as necessary
+
+        pthread_mutex_lock(&leaderboardMutex);
+        for(int i = 0; i < 3; i++){
+            int player_idx = (games[game_idx]->top_three)[i];
+            int player_score = (games[game_idx]->players)[player_idx]->score;
+            char player_nickname[UNAME_LEN]; strcpy(player_nickname, (games[game_idx]->players)[player_idx]->nickname);
+
+            for(int j = 0; j < 3; j++){
+                if((leaderboards[game_type].top_three)[j].score < 0){
+                    (leaderboards[game_type].top_three)[j].score = player_score;
+                    strcpy((leaderboards[game_type].top_three)[j].nickname, player_nickname);
+
+                    break;
+                }
+                else if((leaderboards[game_type].top_three)[j].score < player_score){
+                    for(int k = j; k < 2; k++){
+                        (leaderboards[game_type].top_three)[k+1].score = (leaderboards[game_type].top_three)[k].score;
+                        strcpy((leaderboards[game_type].top_three)[k+1].nickname, (leaderboards[game_type].top_three)[k].nickname);
+                    }
+
+                    (leaderboards[game_type].top_three)[j].score = player_score;
+                    strcpy((leaderboards[game_type].top_three)[j].nickname, player_nickname);
+                    break;
+                }
+            }
+        }
+        pthread_mutex_unlock(&leaderboardMutex);
     }
 
     pthread_mutex_unlock(gameMutexes + game_idx);
