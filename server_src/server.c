@@ -231,6 +231,17 @@ void remove_client(int client_idx){
                 }
             }
             pthread_mutex_unlock(gameMutexes + game_idx); // release mutex lock for corresponding game session
+
+            if(games[game_idx] != NULL){
+                /* If on disconnection, no more players remain playing the game, then handle game finish. This prevents
+                 * 'zombie' game instances which never finish due to abrupt disconnection of the final player in the game.
+                 * This was a bug which was being experienced and is mitigated by this change.
+                 *
+                 * Setting remove_client_flag to client_idx ensures no message is sent to the client instance, resulting
+                 * in never--ending recursive calls to remove_client by client_msg (which is...bad...very bad).
+                 */
+                gameFinishedQ(game_idx, client_idx);
+            }
         }
 
         // initialise new msg instance and allocate enough memory for data part
@@ -1490,7 +1501,6 @@ int handle_score_update_msg(char* chat_msg, int client_idx){
 int handle_finished_game_msg(char* chat_msg, int client_idx){
     int game_idx = -1;
     int player_idx = 0;
-    int game_finished = 0;
 
     pthread_mutex_lock(clientMutexes + client_idx);
     if(clients[client_idx] != NULL){
@@ -1539,65 +1549,77 @@ int handle_finished_game_msg(char* chat_msg, int client_idx){
                 }
             }
         }
+        pthread_mutex_unlock(gameMutexes + game_idx);
 
-        int n_completed_players  = 0;
+        gameFinishedQ(game_idx, -1);
+    }
 
-        for(int i = 0; i < N_SESSION_PLAYERS; i++){
-            if((games[game_idx]->players)[i] != NULL){
-                if((games[game_idx]->players)[i]->state == FINISHED || (games[game_idx]->players)[i]->state == DISCONNECTED){
-                    n_completed_players++;
-                }
+    return 0;
+}
+
+void gameFinishedQ(int game_idx, int remove_client_flag){
+    int game_finished = 0;
+    int n_completed_players  = 0;
+
+    for(int i = 0; i < N_SESSION_PLAYERS; i++){
+        if((games[game_idx]->players)[i] != NULL){
+            if((games[game_idx]->players)[i]->state == FINISHED || (games[game_idx]->players)[i]->state == DISCONNECTED){
+                n_completed_players++;
             }
         }
+    }
 
-        if(n_completed_players == games[game_idx]->n_players){
-            game_finished = 1;
+    if(n_completed_players == games[game_idx]->n_players){
+        game_finished = 1;
 
-            // initialise new msg instance and allocate enough memory for data part
-            msg finished_msg;
-            finished_msg.msg_type = CHAT;
-            finished_msg.msg = malloc(256 + 3*UNAME_LEN);
-            if(finished_msg.msg == NULL){
-                mrerror("Error encountered while allocating memory");
-            }
+        // initialise new msg instance and allocate enough memory for data part
+        msg finished_msg;
+        finished_msg.msg_type = CHAT;
+        finished_msg.msg = malloc(256 + 3*UNAME_LEN);
+        if(finished_msg.msg == NULL){
+            mrerror("Error encountered while allocating memory");
+        }
 
-            int winner_idx;
+        int winner_idx;
 
-            if(games[game_idx]->game_type != CHILL){
-                strcpy(finished_msg.msg, "All players have completed the game! The top players are, in highest ranking order:");
+        pthread_mutex_lock(gameMutexes + game_idx);
 
-                for(int i = 0; i < 3; i++){
-                    if((games[game_idx]->top_three)[i] >= 0 && i < games[game_idx]->n_players){
-                        strcat(finished_msg.msg, "\n\t");
-                        strcat(finished_msg.msg, (games[game_idx]->players)[(games[game_idx]->top_three)[i]]->nickname);
-                        strcat(finished_msg.msg, " with a score of ");
+        if(games[game_idx]->game_type != CHILL){
+            strcpy(finished_msg.msg, "All players have completed the game! The top players are, in highest ranking order:");
 
-                        char score[7];
-                        sprintf(score, "%d", (games[game_idx]->players)[(games[game_idx]->top_three)[i]]->score);
-                        strcat(finished_msg.msg, score);
+            for(int i = 0; i < 3; i++){
+                if((games[game_idx]->top_three)[i] >= 0 && i < games[game_idx]->n_players){
+                    strcat(finished_msg.msg, "\n\t");
+                    strcat(finished_msg.msg, (games[game_idx]->players)[(games[game_idx]->top_three)[i]]->nickname);
+                    strcat(finished_msg.msg, " with a score of ");
 
-                        strcat(finished_msg.msg, " points.");
-                    }
+                    char score[7];
+                    sprintf(score, "%d", (games[game_idx]->players)[(games[game_idx]->top_three)[i]]->score);
+                    strcat(finished_msg.msg, score);
+
+                    strcat(finished_msg.msg, " points.");
                 }
-
-                winner_idx = (games[game_idx]->players)[(games[game_idx]->top_three)[0]]->client_idx;
-            }
-            else{
-                strcpy(finished_msg.msg, "Game finished! Your score was ");
-
-                char score[7];
-                sprintf(score, "%d", (games[game_idx]->players)[0]->score);
-                strcat(finished_msg.msg, score);
-
-                strcat(finished_msg.msg, " points.");
-
-                winner_idx = (games[game_idx]->players)[0]->client_idx;
             }
 
-            for(int i = 0; i < N_SESSION_PLAYERS; i++){
-                if((games[game_idx]->players)[i] != NULL && (games[game_idx]->players)[i]->state != DISCONNECTED){
-                    int curr_client_idx = (games[game_idx]->players)[i]->client_idx;
+            winner_idx = (games[game_idx]->players)[(games[game_idx]->top_three)[0]]->client_idx;
+        }
+        else{
+            strcpy(finished_msg.msg, "Game finished! Your score was ");
 
+            char score[7];
+            sprintf(score, "%d", (games[game_idx]->players)[0]->score);
+            strcat(finished_msg.msg, score);
+
+            strcat(finished_msg.msg, " points.");
+
+            winner_idx = (games[game_idx]->players)[0]->client_idx;
+        }
+
+        for(int i = 0; i < N_SESSION_PLAYERS; i++){
+            if((games[game_idx]->players)[i] != NULL && (games[game_idx]->players)[i]->state != DISCONNECTED){
+                int curr_client_idx = (games[game_idx]->players)[i]->client_idx;
+
+                if(remove_client_flag != curr_client_idx){
                     pthread_mutex_lock(clientMutexes + curr_client_idx);
                     clients[curr_client_idx]->game_idx = -1;
 
@@ -1609,20 +1631,18 @@ int handle_finished_game_msg(char* chat_msg, int client_idx){
                     }
                     pthread_mutex_unlock(clientMutexes + curr_client_idx);
 
-                    client_msg(finished_msg, (games[game_idx]->players)[i]->client_idx);
+                    client_msg(finished_msg, curr_client_idx);
                 }
             }
         }
-
-        pthread_mutex_unlock(gameMutexes + game_idx);
     }
+
+    pthread_mutex_unlock(gameMutexes + game_idx);
 
     if(game_finished){
         free(games[game_idx]);
         games[game_idx] = NULL;
     }
-
-    return 0;
 }
 
 int handle_p2p_read_msg(char* chat_msg, int client_idx){
