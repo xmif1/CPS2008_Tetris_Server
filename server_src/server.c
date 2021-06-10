@@ -184,6 +184,8 @@ void add_client(int client_fd, struct sockaddr_in clientaddrIn){
         strcat(joined_msg.msg, nickname);
         strcat(joined_msg.msg, ".");
         client_msg(joined_msg, i); // client_msg is a convience function outlined later on to handle sending msgs to clients
+
+        free(joined_msg.msg); // free memory as necessary
     }else{ // if maximum number of clients has been exceeded, send an appropriate message to the client and disconnect
         msg err_msg;
         err_msg.msg = malloc(80);
@@ -202,6 +204,8 @@ void add_client(int client_fd, struct sockaddr_in clientaddrIn){
 
         // and then disconnect by closing the file descriptor
         close(client_fd);
+
+        free(err_msg.msg); // free memory as necessary
     }
 }
 
@@ -271,6 +275,7 @@ void remove_client(int client_idx){
        	    client_msg(send_msg, i);
         }
 
+        free(send_msg.msg); // free memory as necessary
     }else{
         pthread_mutex_unlock(clientMutexes + client_idx);
     }
@@ -457,6 +462,8 @@ void* service_game_request(void* arg){
                 client_msg(request_msg, (games[game_idx]->players)[i]->client_idx);
             }
         }
+
+        free(request_msg.msg); // free memory as necessary
     }
     pthread_mutex_unlock(gameMutexes + game_idx); // release the mutex lock for the game session struct at game_idx
 
@@ -613,6 +620,7 @@ void* service_game_request(void* arg){
 
                     // send to the client using the client_msg convenience function
                     client_msg(new_game_msg, (games[game_idx]->players)[i]->client_idx);
+                    free(new_game_msg.msg); // free memory as necessary
                 }
             }
 
@@ -646,7 +654,11 @@ void* service_game_request(void* arg){
                     client_msg(start_game_msg, (games[game_idx]->players)[i]->client_idx);
                 }
             }
+
+            free(start_game_msg.msg); // free memory as necessary
         }
+
+        free(send_msg.msg); // free memory as necessary
     }
     pthread_mutex_unlock(gameMutexes + game_idx);
     pthread_exit(NULL);
@@ -684,11 +696,53 @@ void sfunc_players(int argc, char* argv[], int client_idx){
         pthread_mutex_unlock(clientMutexes + i);
     }
 
-    // send message to client using client_msg
-    client_msg(send_msg, client_idx);
+    client_msg(send_msg, client_idx); // send message to client using client_msg
+    free(send_msg.msg); // free memory as necessary
 }
 
-void sfunc_playerstats(int argc, char* argv[], int client_idx){}
+void sfunc_playerstats(int argc, char* argv[], int client_idx){
+    // initialise new msg instance and allocate enough memory for data part
+    msg send_msg;
+    send_msg.msg = malloc(32 + MAX_CLIENTS*(UNAME_LEN + 64));
+    if(send_msg.msg == NULL){
+        mrerror("Error encountered while allocating memory");
+    }
+
+    send_msg.msg_type = CHAT;
+    strcpy(send_msg.msg, "Online Player Statistics:");
+
+    for(int i = 0; i < MAX_CLIENTS; i++){
+        // in a thread--safe manner, obtain the nickname and game statistics, and concat details
+        pthread_mutex_lock(clientMutexes + i);
+        if(clients[i] != NULL){ // check if valid client struct
+            // obtain string representation of number of wins
+            char str_n_wins[(int) floor(log10(clients[i]->n_wins))+2];
+            sprintf(str_n_wins, "%d", clients[i]->n_wins);
+
+            // obtain string representation of number of losses
+            char str_n_losses[(int) floor(log10(clients[i]->n_losses))+2];
+            sprintf(str_n_losses, "%d", clients[i]->n_losses);
+
+            // obtain string representation of high score
+            char str_high_score[(int) floor(log10(clients[i]->high_score))+2];
+            sprintf(str_high_score, "%d", clients[i]->high_score);
+
+            // append to message the nickname, no. of wins, no. of losses, and high score
+            strcat(send_msg.msg, "\n\t");
+            strcat(send_msg.msg, clients[i]->nickname);
+            strcat(send_msg.msg, " : # Wins = ");
+            strcat(send_msg.msg, str_n_wins);
+            strcat(send_msg.msg, ", # Losses = ");
+            strcat(send_msg.msg, str_n_losses);
+            strcat(send_msg.msg, ", High Score = ");
+            strcat(send_msg.msg, str_high_score);
+        }
+        pthread_mutex_unlock(clientMutexes + i);
+    }
+
+    client_msg(send_msg, client_idx); // send message to client using client_msg
+    free(send_msg.msg); // free memory as necessary
+}
 
 /* Responsible for handling the !battle command received from a client, which is reponsible for:
  * (i)   Verifying that the passed parameters are all valid.
@@ -982,6 +1036,8 @@ void sfunc_battle(int argc, char* argv[], int client_idx){
             pthread_mutex_unlock(gameMutexes + game_idx); // and release the mutex lock reserved for the game_session struct
         }
     }
+
+    free(send_msg.msg); // free memory as necessary
 }
 
 void sfunc_quick(int argc, char* argv[], int client_idx){
@@ -1096,6 +1152,7 @@ void sfunc_quick(int argc, char* argv[], int client_idx){
     }
 
     client_msg(send_msg, client_idx);
+    free(send_msg.msg); // free memory as necessary
 }
 
 void sfunc_chill(int argc, char* argv[], int client_idx){
@@ -1197,6 +1254,8 @@ void sfunc_go(int argc, char* argv[], int client_idx){
 
         pthread_mutex_unlock(gameMutexes + game_idx);
     }
+
+    free(send_msg.msg); // free memory as necessary
 }
 
 void sfunc_ignore(int argc, char* argv[], int client_idx){
@@ -1252,22 +1311,162 @@ void sfunc_ignore(int argc, char* argv[], int client_idx){
                 // initialise new msg instance and allocate enough memory for data part
                 msg send_to_client;
                 send_to_client.msg = malloc(64);
-                if(send_msg.msg == NULL){
+                if(send_to_client.msg == NULL){
                     mrerror("Error encountered while allocating memory");
                 }
 
                 send_to_client.msg_type = CHAT;
                 strcpy(send_to_client.msg, "You have successfully declined to join the game session.");
                 client_msg(send_to_client, client_idx);
+
+                free(send_to_client.msg); // free memory as necessary
             }
         }
 
         pthread_mutex_unlock(gameMutexes + game_idx);
     }
+
+    free(send_msg.msg); // free memory as necessary
 }
 
-void sfunc_nickname(int argc, char* argv[], int client_idx){}
-void sfunc_help(int argc, char* argv[], int client_idx){}
+// Updates the nickname of a client, as well as any references in leaderboards etc, if it is valid.
+void sfunc_nickname(int argc, char* argv[], int client_idx){
+    // initialise new msg instance and allocate enough memory for data part
+    msg send_msg;
+    send_msg.msg = malloc(128 + UNAME_LEN);
+    if(send_msg.msg == NULL){
+        mrerror("Error encountered while allocating memory");
+    }
+
+    int valid_nickname = 1; // flag to maintain whether a nickname is valid
+
+    if(argc != 2){ // if no nickname or multiple options provided, send an appropriate error message
+        valid_nickname = 0;
+
+        strcpy(send_msg.msg, "Invalid nickname: Command accepts exactly one input (remember: nicknames do not include spaces).");
+        client_msg(send_msg, client_idx);
+    }
+    else if(strlen(argv[1]) >= UNAME_LEN){ // if nickname provided exceeds UNAME_LEN - 1, send an appropriate error message
+        valid_nickname = 0;
+
+        strcpy(send_msg.msg, "Invalid nickname: Nickname cannot exceed 31 characters.");
+        client_msg(send_msg, client_idx);
+    }
+    else if((strcmp(argv[1], "!go") == 0) || (strcmp(argv[1], "!ignore") == 0) || (strcmp(argv[1], "!battle") == 0) ||
+       (strcmp(argv[1], "!quick") == 0) || (strcmp(argv[1], "!nickname") == 0) || (strcmp(argv[1], "!players") == 0) ||
+       (strcmp(argv[1], "!leaderboard") == 0) || (strcmp(argv[1], "!gamestats") == 0) || (strcmp(argv[1], "!chill") == 0)
+       || (strcmp(argv[1], "!playerstats") == 0)){ // if nickname is one of the reserved commands, send an appropriate error message
+
+        valid_nickname = 0;
+
+        strcpy(send_msg.msg, "Invalid nickname: Nickname cannot be the same as a command name.");
+        client_msg(send_msg, client_idx);
+    }
+    else if(nickname_uniqueQ(argv[1])){ // else if the nickname is already taken, send an appropriate error message
+        valid_nickname = 0;
+
+        strcpy(send_msg.msg, "Invalid nickname: Nickname already taken.");
+        client_msg(send_msg, client_idx);
+    }
+
+    if(valid_nickname){ // if all the above checks are passed, the nickname is valid and can be used
+        pthread_mutex_lock(clientMutexes + client_idx); // obtain mutex lock for client
+
+        if(clients[client_idx] != NULL){ // if valid client struct at index
+            char old_nickname[UNAME_LEN]; strcpy(old_nickname, clients[client_idx]->nickname); // keep copy of old nickname
+            strcpy(clients[client_idx]->nickname, argv[1]); // set client's nickname to the new nickname
+
+            // if client is in a game, update game_session struct with the new nickname instead of the old.
+            if(clients[client_idx]->game_idx >= 0){
+                int game_idx = clients[client_idx]->game_idx; // maintain reference to the game_idx
+                pthread_mutex_lock(gameMutexes + game_idx); // obtain mutex lock for the game_session struct
+
+                if(games[game_idx] != NULL){ // if valid game_session struct at game_idx
+                    // search list of players, and update with new nickname when match found with old nickname
+                    for(int i = 0; i < N_SESSION_PLAYERS; i++){
+                        if((games[game_idx]->players)[i] != NULL &&
+                        strcmp((games[game_idx]->players)[i]->nickname, old_nickname) == 0){
+
+                            strcpy((games[game_idx]->players)[i]->nickname, argv[1]);
+                        }
+                    }
+                }
+
+                pthread_mutex_unlock(gameMutexes + game_idx); // release mutex lock for the game_session struct
+            }
+
+            // message to send to all other clients informing them of the nickname change
+            strcpy(send_msg.msg, old_nickname);
+            strcat(send_msg.msg, " has changed their nicknmame to ");
+            strcat(send_msg.msg, argv[1]);
+            strcat(send_msg.msg, ".");
+
+            // make a call to client_msg for each possible client (if no clients[i] == NULL, client_msg handles this accordingly)
+            for(int i = 0; i < MAX_CLIENTS; i++){
+                if(i != client_idx){
+                    client_msg(send_msg, i);
+                }
+            }
+        }
+        pthread_mutex_unlock(clientMutexes + client_idx); // release mutex lock for client
+    }
+
+    free(send_msg.msg); // free memory as necessary
+}
+
+void sfunc_gamestats(int argc, char* argv[], int client_idx){
+    // initialise new msg instance and allocate enough memory for data part
+    msg send_msg;
+    send_msg.msg = malloc(32 + MAX_CLIENTS*(3*UNAME_LEN + 64));
+    if(send_msg.msg == NULL){
+        mrerror("Error encountered while allocating memory");
+    }
+
+    send_msg.msg_type = CHAT;
+    strcpy(send_msg.msg, "Ongoing Game Statistics:");
+
+    // access game statistics in a thread--safe manner and append to the message
+    for(int i = 0; i < MAX_CLIENTS; i++){
+        pthread_mutex_lock(gameMutexes + i); // get mutex lock for game_session struct at index i
+
+        if(games[i] != NULL){ // if valid game_session struct at index i
+
+            // first print an approriate header for the game session, specifying the game type
+            if(games[i]->game_type == BOOMER){
+                strcpy(send_msg.msg, "\n\tGame Type = Boomer, Highest Ranking Players:");
+            }
+            else if(games[i]->game_type == RISING_TIDE){
+                strcpy(send_msg.msg, "\n\tGame Type = Rising Tide, Highest Ranking Players:");
+            }
+            else if(games[i]->game_type == FAST_TRACK){
+                strcpy(send_msg.msg, "\n\tGame Type = Fast Track, Highest Ranking Players:");
+            }
+            else{
+                strcpy(send_msg.msg, "\n\tGame Type = Chill, Highest Ranking Players:");
+            }
+
+            // then print UP TO the top 3 players along with their score (recall a game can have 1+ players)
+            for(int j = 0; j < 3; j++){
+                if((games[i]->top_three)[j] >= 0 && j < games[i]->n_players){
+                    strcat(send_msg.msg, "\t");
+                    strcat(send_msg.msg, (games[i]->players)[(games[i]->top_three)[j]]->nickname);
+                    strcat(send_msg.msg, "(");
+
+                    char score[7];
+                    sprintf(score, "%d", (games[i]->players)[(games[i]->top_three)[j]]->score);
+                    strcat(send_msg.msg, score);
+
+                    strcat(send_msg.msg, " points)");
+                }
+            }
+        }
+
+        pthread_mutex_unlock(gameMutexes + i); // release mutex lock for game_session struct at index i
+    }
+
+    // send message to client using client_msg
+    client_msg(send_msg, client_idx);
+}
 
 void sfunc_msg(int argc, char* argv[], int client_idx){
     pthread_mutex_lock(clientMutexes + client_idx);
@@ -1490,6 +1689,8 @@ int handle_chat_msg(char* chat_msg, int client_idx){
                 strcpy(err_msg.msg, "Server was unable to process your request. Please try again.");
                 client_msg(err_msg, client_idx);
 
+                free(err_msg.msg); // free memory as necessary
+
                 return 0;
             }
         }
@@ -1670,12 +1871,19 @@ void gameFinishedQ(int game_idx, int remove_client_flag){
                     else if(curr_client_idx == winner_idx && clients[curr_client_idx] != NULL){
                         clients[curr_client_idx]->n_wins++;
                     }
+
+                    if(clients[curr_client_idx]->high_score < (games[game_idx]->players)[i]->score){
+                        clients[curr_client_idx]->high_score = (games[game_idx]->players)[i]->score;
+                    }
+
                     pthread_mutex_unlock(clientMutexes + curr_client_idx);
 
                     client_msg(finished_msg, curr_client_idx);
                 }
             }
         }
+
+        free(finished_msg.msg); // free memory as necessary
     }
 
     pthread_mutex_unlock(gameMutexes + game_idx);

@@ -94,7 +94,7 @@ void sfunc_chill(int argc, char* argv[], int client_idx);
 void sfunc_go(int argc, char* argv[], int client_idx);
 void sfunc_ignore(int argc, char* argv[], int client_idx);
 void sfunc_nickname(int argc, char* argv[], int client_idx);
-void sfunc_help(int argc, char* argv[], int client_idx);
+void sfunc_gamestats(int argc, char* argv[], int client_idx);
 void sfunc_msg(int argc, char* argv[], int client_idx);
 void client_msg(msg send_msg, int client_idx);
 void mrerror(char* err_msg);
