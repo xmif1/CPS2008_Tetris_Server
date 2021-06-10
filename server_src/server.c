@@ -662,6 +662,7 @@ void* service_game_request(void* arg){
 
 void sfunc_leaderboard(int argc, char* argv[], int client_idx){}
 
+// Simple function that sends a message to the calling client with the list of nicknames for players available to join a game
 void sfunc_players(int argc, char* argv[], int client_idx){
     // initialise new msg instance and allocate enough memory for data part
     msg send_msg;
@@ -674,21 +675,28 @@ void sfunc_players(int argc, char* argv[], int client_idx){
     strcpy(send_msg.msg, "Waiting Players:");
 
     for(int i = 0; i < MAX_CLIENTS; i++){
+        // in a thread--safe manner, if a client is not in a game (game_idx == -1), obtain the nickname and concat
         pthread_mutex_lock(clientMutexes + i);
-        if((clients[i] != NULL) && (clients[i]->game_idx < 0)){
+        if((clients[i] != NULL) && (clients[i]->game_idx < 0)){ // check if not in game
             strcat(send_msg.msg, "\n\t");
             strcat(send_msg.msg, clients[i]->nickname);
         }
         pthread_mutex_unlock(clientMutexes + i);
     }
 
+    // send message to client using client_msg
     client_msg(send_msg, client_idx);
 }
 
 void sfunc_playerstats(int argc, char* argv[], int client_idx){}
 
+/* Responsible for handling the !battle command received from a client, which is reponsible for:
+ * (i)   Verifying that the passed parameters are all valid.
+ * (ii)  Verifying that the invited players are, at the time of invitation, not in a game already.
+ * (iii) If (i) and (ii) are successful, initialise a new service_game_request thread.
+ */
 void sfunc_battle(int argc, char* argv[], int client_idx){
-    int parsed_correctly = 1;
+    int parsed_correctly = 1; // flag that maintains whether the command and options have been specified correctly
 
     // initialise new msg instance and allocate enough memory for data part
     msg send_msg;
@@ -699,33 +707,45 @@ void sfunc_battle(int argc, char* argv[], int client_idx){
 
     send_msg.msg_type = CHAT;
 
-    pthread_mutex_lock(clientMutexes + client_idx);
+    pthread_mutex_lock(clientMutexes + client_idx); // obtain mutex lock for client that initiated the invite
+
+    // if client that initiated the invite is already in a game session, then they cannot join another game session and
+    // in particular cannot initiate a new one either
     if(clients[client_idx] != NULL && clients[client_idx]->game_idx >= 0){
         strcpy(send_msg.msg, "Cannot join another game while one is in progress.");
         client_msg(send_msg, client_idx);
     }
     else if(clients[client_idx] != NULL){
         int game_idx = 0;
+
+        // we begin by searching for the next available free slot in the games array
         for(; game_idx < MAX_CLIENTS; game_idx++){
-            pthread_mutex_lock(gameMutexes + game_idx);
-            if(games[game_idx] == NULL){
-                break;
+            pthread_mutex_lock(gameMutexes + game_idx); // obtain mutex lock
+            if(games[game_idx] == NULL){ // check if free; if true, then break -- in which case game_idx will be set to this slot
+                break; // note that when we break, we still have hold of the mutex lock
             }
             else{
-                pthread_mutex_unlock(gameMutexes + game_idx);
+                pthread_mutex_unlock(gameMutexes + game_idx); // release mutex lock if not free
             }
         }
 
-        games[game_idx] = malloc(sizeof(game_session));
+        games[game_idx] = malloc(sizeof(game_session)); // allocate memory for a new game_session struct
 
+        /* initialise game_session struct; we begin by initialising the struct representing the client which initiated the
+         * session we store certain meta--data, eg. the score is initially 0, we keep a copy of the nickname, as well as
+         * a textual representation of the IPv4 address.
+         */
         (games[game_idx]->players)[0] = malloc(sizeof(ingame_client));
         (games[game_idx]->players)[0]->client_idx = client_idx;
         (games[game_idx]->players)[0]->state = CONNECTED;
         (games[game_idx]->players)[0]->score = 0;
         strcpy((games[game_idx]->players)[0]->nickname, clients[client_idx]->nickname);
+        // textual representation of IPv4 address
         inet_ntop(AF_INET, &(clients[client_idx]->clientaddrIn.sin_addr), (games[game_idx]->players)[0]->ip, INET_ADDRSTRLEN);
 
+        // continue initialising game struct...
         games[game_idx]->game_idx = game_idx;
+        // initially these three options are set to -1, so that if they have been set already during parsing we can detect this and report it
         games[game_idx]->time = -1;
         games[game_idx]->n_winlines = -1;
         games[game_idx]->n_baselines = -1;
@@ -733,131 +753,143 @@ void sfunc_battle(int argc, char* argv[], int client_idx){
             games[game_idx]->players[i] = NULL;
         }
 
-        if(0 <= clients[client_idx]->game_idx){
+        if(0 <= clients[client_idx]->game_idx){ // technically unreachable since we check this prior, but we include it for completeness' sake
             pthread_mutex_unlock(clientMutexes + client_idx);
 
             parsed_correctly = 0;
             strcpy(send_msg.msg, "Cannot join another game while another one is in progress.");
             client_msg(send_msg, client_idx);
         }
-        else if(argc < 3){
+        else if(argc < 3){ // in the case that an insufficient number of arguments has been provided...
             pthread_mutex_unlock(clientMutexes + client_idx);
 
             parsed_correctly = 0;
             strcpy(send_msg.msg, "Insufficient number of arguments: must specify the game type and at least one opponent.");
             client_msg(send_msg, client_idx);
-        }else{
+        }else{ // otherwise, we being checking each of the arguments...
             pthread_mutex_unlock(clientMutexes + client_idx);
 
-            int valid_game_mode = 0;
+            int valid_game_mode = 0; // flag to check if game mode is valid (RISING_TIDE, BOOMER, etc...)
             if((strcmp(argv[1], "0") != 0) && (strcmp(argv[1], "1") != 0) && (strcmp(argv[1], "2") != 0)){
+                // if not, send an appropriate error message
                 parsed_correctly = 0;
                 strcpy(send_msg.msg, "Invalid game mode selected.");
                 client_msg(send_msg, client_idx);
             }else{
+                // otherwise, convert to an integer and maintain in game_session struct
                 games[game_idx]->game_type = strtol(argv[1], NULL, 10);
                 valid_game_mode = 1;
             }
 
-            if(valid_game_mode){
-                int n_players = 1;
+            if(valid_game_mode){ // in the case that the game mode specified is valid, continue parsing
+                int n_players = 1; // number of players in the game session (the invitee + the invited, hence why >= 1)
 
-                for(int i = 2; i < argc; i++){
+                for(int i = 2; i < argc; i++){ // iterate through the remaining arguments
                     int opponent_idx = -1;
 
-                    if(strncmp(argv[i], "time=", 5) == 0){
+                    if(strncmp(argv[i], "time=", 5) == 0){ // if argument is of the form "time="
+                        // extract right hand side value
                         char* rhs = strtok(argv[i], "=");
                         rhs = strtok(NULL, "=");
 
-                        if(0 < games[game_idx]->time){
+                        if(0 < games[game_idx]->time){ // if option has already been set, send an appropriate error message
                             parsed_correctly = 0;
                             strcpy(send_msg.msg, "Invalid option: time has been defined more than once. Please specify options once.");
                             client_msg(send_msg, client_idx);
-                            break;
+                            break; // stop parsing
                         }
-                        else if(rhs == NULL){
+                        else if(rhs == NULL){ // if right hand side is not specified, send an appropriate error message
                             parsed_correctly = 0;
                             strcpy(send_msg.msg, "Invalid option: right-hand-side for time option must be provided.");
                             client_msg(send_msg, client_idx);
-                            break;
+                            break; // stop parsing
                         }else{
-                            int time = strtol(rhs, NULL, 10);
-                            if(time < 1){
+                            int time = strtol(rhs, NULL, 10); // convert rhs from string to int
+                            if(time < 1){ // check that time is at least one minute; if not, send an appropriate error message
                                 parsed_correctly = 0;
                                 strcpy(send_msg.msg, "Invalid option: time must be at least 1 minute.");
                                 client_msg(send_msg, client_idx);
-                                break;
-                            }else{
+                                break; // stop parsing
+                            }else{ // otherwise if all is valid, maintain in game_session struct
                                 games[game_idx]->time = time;
                             }
                         }
                     }
-                    else if(strncmp(argv[i], "baselines=", 10) == 0){
+                    else if(strncmp(argv[i], "baselines=", 10) == 0){ // if argument is of the form "baselines="
+                        // extract right hand side value
                         char* rhs = strtok(argv[i], "=");
                         rhs = strtok(NULL, "=");
 
-                        if(0 <= games[game_idx]->n_baselines){
+                        if(0 <= games[game_idx]->n_baselines){ // if option has already been set, send an appropriate error message
                             parsed_correctly = 0;
                             strcpy(send_msg.msg, "Invalid option: baselines has been defined more than once. Please specify options once.");
                             client_msg(send_msg, client_idx);
-                            break;
+                            break; // stop parsing
                         }
-                        else if(rhs == NULL){
+                        else if(rhs == NULL){ // if right hand side is not specified, send an appropriate error message
                             parsed_correctly = 0;
                             strcpy(send_msg.msg, "Invalid option: right-hand-side for baselines option must be provided.");
                             client_msg(send_msg, client_idx);
-                            break;
+                            break; // stop parsing
                         }else{
-                            int baselines = strtol(rhs, NULL, 10);
-                            if(baselines < 1 || baselines > 18){
+                            int baselines = strtol(rhs, NULL, 10); // convert rhs from string to int
+                            if(baselines < 1 || baselines > 18){ // check if rhs value is within bounds; if not, send an appropriate error message
                                 parsed_correctly = 0;
                                 strcpy(send_msg.msg, "Invalid option: number of baselines must be between 1 and 18.");
                                 client_msg(send_msg, client_idx);
-                                break;
-                            }else{
+                                break; // stop parsing
+                            }else{ // otherwise if all is valid, maintain in game_session struct
                                 games[game_idx]->n_baselines = baselines;
                             }
                         }
                     }
-                    else if(strncmp(argv[i], "winlines=", 9) == 0){
+                    else if(strncmp(argv[i], "winlines=", 9) == 0){ // if argument is of the form "winlines="
+                        // extract right hand side value
                         char* rhs = strtok(argv[i], "=");
                         rhs = strtok(NULL, "=");
 
-                        if(0 <= games[game_idx]->n_winlines){
+                        if(0 <= games[game_idx]->n_winlines){ // if option has already been set, send an appropriate error message
                             parsed_correctly = 0;
                             strcpy(send_msg.msg, "Invalid option: winlines has been defined more than once. Please specify options once.");
                             client_msg(send_msg, client_idx);
-                            break;
+                            break; // stop parsing
                         }
-                        else if(rhs == NULL){
+                        else if(rhs == NULL){ // if right hand side is not specified, send an appropriate error message
                             parsed_correctly = 0;
                             strcpy(send_msg.msg, "Invalid option: right-hand-side for winlines option must be provided.");
                             client_msg(send_msg, client_idx);
-                            break;
+                            break; // stop parsing
                         }else{
-                            int winlines = strtol(rhs, NULL, 10);
-                            if(winlines < 1){
+                            int winlines = strtol(rhs, NULL, 10);  // convert rhs from string to int
+                            if(winlines < 1){ // the number of winning lines must be at least 1; if not, send an appropriate error message
                                 parsed_correctly = 0;
                                 strcpy(send_msg.msg, "Invalid option: number of winlines must be at least 1.");
                                 client_msg(send_msg, client_idx);
-                                break;
-                            }else{
+                                break; // stop parsing
+                            }else{ // otherwise if all is valid, maintain in game_session struct
                                 games[game_idx]->n_winlines = winlines;
                             }
                         }
                     }
+                    // otherwise, the rest of the arguments are treated as nicknames to players
+
+                    // if current argument is potentially a player nickname, but the number of valid nicknames specified
+                    // exceeds the number of maximum players in a game session, send an appropriate error message
                     else if(n_players > N_SESSION_PLAYERS){
                         parsed_correctly = 0;
                         strcpy(send_msg.msg, "Invalid number of opponents: too many specified.");
                         client_msg(send_msg, client_idx);
                         break;
                     }else{
+                        // in a thread--safe manner, search the array of client instances, and check if there is one with
+                        // a nickname matching the argument value
                         for(int j = 0; j < MAX_CLIENTS; j++){
                             pthread_mutex_lock(clientMutexes + j);
                             if(!clients[j]){
                                 pthread_mutex_unlock(clientMutexes + i);
                             }
                             else if(strcmp(argv[i], clients[j]->nickname) == 0){
+                                // in the case a match is found, opponent_idx becomes a non-negative value (the client_idx of the opponent)
                                 opponent_idx = j;
                                 pthread_mutex_unlock(clientMutexes + j);
                                 break;
@@ -865,15 +897,21 @@ void sfunc_battle(int argc, char* argv[], int client_idx){
                             pthread_mutex_unlock(clientMutexes + j);
                         }
 
+                        // if no match is found, send an appropriate error message, specifying the invalid nickname given
                         if(opponent_idx < 0){
                             parsed_correctly = 0;
                             strcpy(send_msg.msg, "Invalid nickname: the nickname ");
                             strcat(send_msg.msg, argv[i]);
                             strcat(send_msg.msg, " does not belong to any active player.");
                             client_msg(send_msg, client_idx);
-                            break;
+                            break; // stop parsing
                         }else{
-                            int already_added = 0;
+                            // otherwise, before registering the client at opponent_idx in the game, we ensure that they
+                            // have not been already been added, i.e. no duplicate argument of the same nickname
+
+                            int already_added = 0; // flag which maintains whether opponent has already been added
+
+                            // loop across all registered player instances in the game session and check for uniqueness
                             for(int k = 0; k < n_players; k++){
                                 if(strcmp(argv[i], games[game_idx]->players[k]->nickname) == 0){
                                     already_added = 1;
@@ -881,22 +919,24 @@ void sfunc_battle(int argc, char* argv[], int client_idx){
                                 }
                             }
 
-                            if(already_added){
+                            if(already_added){ // if already added i.e. repeated nickname given
+                                // send an appropriate error message, specifying the invalid nickname given
                                 parsed_correctly = 0;
                                 strcpy(send_msg.msg, "Invalid nickname: the nickname ");
                                 strcat(send_msg.msg, argv[i]);
                                 strcat(send_msg.msg, " has been listed more than once.");
                                 client_msg(send_msg, client_idx);
-                                break;
+                                break; // stop parsing
                             }
                             else{
+                                // otherwise register player instance in the game_session struct
                                 (games[game_idx]->players)[n_players] = malloc(sizeof(ingame_client));
                                 (games[game_idx]->players)[n_players]->state = WAITING;
                                 (games[game_idx]->players)[n_players]->score = 0;
                                 (games[game_idx]->players)[n_players]->client_idx = opponent_idx;
                                 strcpy((games[game_idx]->players)[n_players]->nickname, argv[i]);
 
-                                n_players++;
+                                n_players++; // and increment the number of players invited to the game session
                             }
                         }
                     }
@@ -904,6 +944,7 @@ void sfunc_battle(int argc, char* argv[], int client_idx){
             }
         }
 
+        // if at no point has parsed_correctly been set to 0
         if(parsed_correctly){
             if(games[game_idx]->n_baselines < 0){
                 games[game_idx]->n_baselines = BASELINES_DEFAULT;
@@ -934,11 +975,11 @@ void sfunc_battle(int argc, char* argv[], int client_idx){
             strcpy(send_msg.msg, "Game invite sent to the other players...waiting for their response....");
             client_msg(send_msg, client_idx);
         }
-        else{
+        else{ // otherwise if parsed_correctly = 0 i.e a parsing error has occured, free memory as necessary
             free(games[game_idx]);
             games[game_idx] = NULL;
 
-            pthread_mutex_unlock(gameMutexes + game_idx);
+            pthread_mutex_unlock(gameMutexes + game_idx); // and release the mutex lock reserved for the game_session struct
         }
     }
 }
