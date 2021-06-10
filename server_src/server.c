@@ -171,6 +171,7 @@ void add_client(int client_fd, struct sockaddr_in clientaddrIn){
         // release mutex lock corresponding to the client
         pthread_mutex_unlock(clientMutexes + i);
 
+        // initialise new msg instance and allocate enough memory for data part
         msg joined_msg;
         joined_msg.msg = malloc(32 + UNAME_LEN);
         if(joined_msg.msg == NULL){
@@ -232,6 +233,7 @@ void remove_client(int client_idx){
             pthread_mutex_unlock(gameMutexes + game_idx); // release mutex lock for corresponding game session
         }
 
+        // initialise new msg instance and allocate enough memory for data part
         msg send_msg;
         send_msg.msg = malloc(32 + UNAME_LEN);
         if(send_msg.msg == NULL){
@@ -359,31 +361,49 @@ void* service_client(void* arg){
  * multiplayer mode.
  *
  * A flow--chart of the interaction between the service_game_request thread, the service_client thread, as well as the
- * client library, is given in the project report.
+ * client library, is given in the project report. The procedure for setting up a game session, as handled by this thread,
+ * if as follows:
+ *
+ * (i)   Send an invite to all clients invited to the game session, with the game details
+ * (ii)  Sleep for n seconds (default n = 30), during which players may accept or decline (sending a !go or !ignore chat msg)
+ * (iii) For all those clients that accepted the invite, we send a NEW_GAME message with the game details and IPv4 address
+ *       for each client in the session, as well as a port offset that allocates a unique port number to each client. This
+ *       allows for P2P setup.
+ * (iv)  Wait until all clients send a P2P_READY message (indicating that they are ready to accept P2P connections)
+ * (v)   Send a START_GAME message to all clients in the session, and terminate the thread.
  */
 void* service_game_request(void* arg){
-    int game_idx = *((int*) arg);
+    int game_idx = *((int*) arg); // obtain game session index from the passed arguments
 
-    pthread_mutex_lock(gameMutexes + game_idx);
-    int game_type = games[game_idx]->game_type;
+    pthread_mutex_lock(gameMutexes + game_idx); // obtain the mutex lock for the game session struct at game_idx
+    int game_type = games[game_idx]->game_type; // hold reference to the game type
 
+    // if game struct at index is valid and game is a multiplayer mode
+    // in case of a single player mode (CHILL), there is no need to send any invitation
     if(games[game_idx] != NULL && game_type != CHILL){
+        // initialise new msg instance and allocate enough memory for data part
         msg request_msg;
         request_msg.msg = malloc(256 + (N_SESSION_PLAYERS + 1)*UNAME_LEN);
         if(request_msg.msg == NULL){
             mrerror("Error encountered while allocating memory");
         }
 
+        // Depending on game type, include in the invite the game_type, chosen options, and the list of invited players
         request_msg.msg_type = CHAT;
         strcpy(request_msg.msg, "Player ");
-        strcat(request_msg.msg, (games[game_idx]->players)[0]->nickname);
+        strcat(request_msg.msg, (games[game_idx]->players)[0]->nickname); // include nickname of player which sent the invite
         strcat(request_msg.msg, " has invited you to a game of Super Battle Tetris: ");
+
+        // Include game options depending on the game_type specified
         if(game_type == RISING_TIDE){
+            // In case of RISING_TIDE, there are no options to set and hence none to be specified
             strcat(request_msg.msg, "Rising Tide!\n\nThe invited players are:");
         }
         else if(game_type == FAST_TRACK){
             strcat(request_msg.msg, "Fast Track!\n");
 
+            // In this game mode, the number of baselines and winning lines can be changed and hence must be displayed
+            // If not changed when creating the invite, the default values are used (and hence displayed in the invite)
             strcat(request_msg.msg, "The number of baselines is ");
             char n_baselines[4]; sprintf(n_baselines, "%d", games[game_idx]->n_baselines);
             strcat(request_msg.msg, n_baselines);
@@ -394,6 +414,9 @@ void* service_game_request(void* arg){
             strcat(request_msg.msg, ".\n\nThe invited players are:");
         }
         else{
+            // In this game mode, the number minutes the game lasts can be changed and hence must be displayed
+            // If not changed when creating the invite, the default value is used (and hence displayed in the invite)
+
             strcat(request_msg.msg, "Boomer!\n");
             strcat(request_msg.msg, "The match duration is ");
             char time[4]; sprintf(time, "%d", games[game_idx]->time);
@@ -401,6 +424,8 @@ void* service_game_request(void* arg){
             strcat(request_msg.msg, " minutes.\n\nThe invited players are:");
         }
 
+        // For every invited player, include their nickname in the invitation message
+        // Note that the game struct maintains a *copy* of the nickname, and hence no need to obtain the client's mutex lock
         for(int i = 0; i < N_SESSION_PLAYERS; i++){
             if((games[game_idx]->players)[i] != NULL){
                 strcat(request_msg.msg, "\n\t");
@@ -408,37 +433,47 @@ void* service_game_request(void* arg){
             }
         }
 
+        // allocate sufficient memory for a textual representation of the game index
         char game_idx_str[(int) floor(log10(MAX_CLIENTS))+2]; sprintf(game_idx_str, "%d", game_idx);
+        // include the game index in the message (must be used with !go or !ignore commands, since a client may recieve
+        // multiple game invites in a short period of time
         strcat(request_msg.msg, "\n\nThe game id is: ");
         strcat(request_msg.msg, game_idx_str);
 
+        // Finally, send the invite to each invited player (i.e. client instance) using the client_msg convenience function
         for(int i = 1; i < N_SESSION_PLAYERS; i++){
             if((games[game_idx]->players)[i] != NULL){
                 client_msg(request_msg, (games[game_idx]->players)[i]->client_idx);
             }
         }
     }
-    pthread_mutex_unlock(gameMutexes + game_idx);
+    pthread_mutex_unlock(gameMutexes + game_idx); // release the mutex lock for the game session struct at game_idx
 
-    if(game_type != CHILL){
-        sleep(INVITATION_EXP);
+    // if game struct at index is valid and game is a multiplayer mode
+    // in case of a single player mode (CHILL), there is no need to wait for players to accept or reject the game invite
+    if(games[game_idx] != NULL && game_type != CHILL){
+        sleep(INVITATION_EXP); // INVITATION_EXP specifies the number of seconds after which accept or rejects are ignored
     }
 
-    int n_players = 0;
+    int n_players = 0; // used to store the number of players that have accepted the game invite
 
-    pthread_mutex_lock(gameMutexes + game_idx);
+    pthread_mutex_lock(gameMutexes + game_idx); // obtain the mutex lock for the game session struct at game_idx
     if(games[game_idx] != NULL){
+        // determine the number of players that have not DISCONNECTED and have accepted the game invite (i.e. not WAITING)
         for(int i = 0; i < N_SESSION_PLAYERS; i++){
+
             if(((games[game_idx]->players)[i] != NULL) && ((games[game_idx]->players)[i]->state == WAITING ||
             (games[game_idx]->players)[i]->state == DISCONNECTED)){
+                // if DISCONNECTED or still WAITING (i.e. not accepted the game invite), free memory and deinitialise
                 free((games[game_idx]->players)[i]);
                 (games[game_idx]->players)[i] = NULL;
             }
             else if((games[game_idx]->players)[i] != NULL){
-                n_players++;
+                n_players++; // else player is connected and accepted the invite i.e. increment n_players by 1
             }
         }
 
+        // initialise new msg instance and allocate enough memory for data part
         msg send_msg;
         send_msg.msg = malloc(80);
         if(send_msg.msg == NULL){
@@ -447,70 +482,108 @@ void* service_game_request(void* arg){
 
         send_msg.msg_type = CHAT;
         if(n_players == 0){
+            // if no players in the end have joined the game session, simply free memory and exit thread
             free(games[game_idx]);
             games[game_idx] = NULL;
         }
+        // else if the game mode is multiplayer but there is a single player only, inform the player that game is cancelled and exit thread
         else if(n_players == 1 && game_type != CHILL){
             int client_idx;
             int i = 0;
+
+            // find the *only* client which is still in the game session
             for(; i < N_SESSION_PLAYERS; i++){
                 if((games[game_idx]->players)[i] != NULL){
                     client_idx = (games[game_idx]->players)[i]->client_idx;
                 }
             }
+
+            // send a message (using client_msg) to the client informing them that the game is cancelled
             strcpy(send_msg.msg, "Insufficient number of players have joined the game session.");
             client_msg(send_msg, client_idx);
 
+            // de-register client from the game session by setting their game_idx to -1 in the respective struct
+            // we do this in a thread--safe manner by first obtaining the client's mutex lock
             pthread_mutex_lock(clientMutexes + client_idx);
             if(clients[client_idx] != NULL){
                 clients[client_idx]->game_idx = -1;
             }
             pthread_mutex_unlock(clientMutexes + client_idx);
 
+            // lastly, we free memory and exit thread
             free(games[game_idx]);
             games[game_idx] = NULL;
         }
+        // otherwise we communicate the necessary information for the client(s) to start a new game session
+        // (to setup the front end, P2P network, etc)
         else if(n_players > 1 || game_type == CHILL){
+            // update the game session struct with the number of players that are connected and have accepted the invite
             games[game_idx]->n_players = n_players;
 
-            char new_game_msg_header[64];
+            /* This section deals with the construction of the data part of the NEW_GAME message, which is discussed in
+             * detail in the project report. In essence, the message takes the following form:
+             *
+             * <game_type>::<n_baselines>::<n_winlines>::<time>::<seed>::<port_block_offset>::<client_1_ipv4>::
+             * <client_2_ipv4>:: . . . ::<client_n_ipv4>
+             *
+             * where n is the number of clients in the game session, the seed is a randomly generated integer by the server
+             * to be used a seed to an LCG implemented in the front-end (used for all clients to generate the same sequence
+             * of tetrominoes), and the port_block_offset i is an integer between 1 <= i <= n, which assigns the unique port
+             * 8080 + i to the i^th client.
+             *
+             * Note that if a particular game type does not allow for a parameter to be changed, we still include that
+             * parameter in the message -- we simply include the default value. This allows for a standardised message
+             * across the different game types, which can be decoded in the same manner by the client library.
+             *
+             * The port_block_offset is unique to each client in the session, i.e. each client recieves a unique message.
+             * However, the game options (new_game_msg_header) + the client IPv4 list (new_game_msg_tail) is the same in
+             * all messages. Hence we first construct these as a string once, then simply concatenate with the unique
+             * port_block_offset: new_game_msg_header + port_block_offset_str + new_game_msg_tail.
+             */
 
-            sprintf(new_game_msg_header, "%d", games[game_idx]->game_type);
+            char new_game_msg_header[64]; // we begin by first constructing the game options part of the messages
+
+            sprintf(new_game_msg_header, "%d", games[game_idx]->game_type); // convert from int and copy the game type
             strcat(new_game_msg_header, "::");
 
             char baselines_str[4];
-            sprintf(baselines_str, "%d", games[game_idx]->n_baselines);
-            strcat(new_game_msg_header, baselines_str);
-            strcat(new_game_msg_header, "::");
+            sprintf(baselines_str, "%d", games[game_idx]->n_baselines); // convert from int the # of baselines
+            strcat(new_game_msg_header, baselines_str); // concat # of baselines to message
+            strcat(new_game_msg_header, "::"); // concat the separation token
 
             char winlines_str[4];
-            sprintf(winlines_str, "%d", games[game_idx]->n_winlines);
-            strcat(new_game_msg_header, winlines_str);
-            strcat(new_game_msg_header, "::");
+            sprintf(winlines_str, "%d", games[game_idx]->n_winlines); // convert from int the # of winlines
+            strcat(new_game_msg_header, winlines_str); // concat # of winlines to message
+            strcat(new_game_msg_header, "::"); // concat the separation token
 
             char time_str[4];
-            sprintf(time_str, "%d", games[game_idx]->time);
-            strcat(new_game_msg_header, time_str);
-            strcat(new_game_msg_header, "::");
+            sprintf(time_str, "%d", games[game_idx]->time); // convert from int the # of minutes of gameplay
+            strcat(new_game_msg_header, time_str); // concat # of minutes of gameplay to message
+            strcat(new_game_msg_header, "::"); // concat the separation token
 
             char seed_str[4];
-            sprintf(seed_str, "%d", games[game_idx]->seed);
-            strcat(new_game_msg_header, seed_str);
+            sprintf(seed_str, "%d", games[game_idx]->seed);  // convert from int the random seed
+            strcat(new_game_msg_header, seed_str); // concat the random seed to message
 
+            // we now construct the tail of message with the list of IPv4 addresses of the clients in the game session
+            // observe that we ensure null termination
             char new_game_msg_tail[n_players*UNAME_LEN]; strcpy(new_game_msg_tail, "\0");
 
+            // simply loop through all references of clients in the game session struct and concat the IPv4 address
             for(int i = 0; i < N_SESSION_PLAYERS; i++){
                 if((games[game_idx]->players)[i] != NULL){
-                    strcat(new_game_msg_tail, "::");
-                    strcat(new_game_msg_tail, (games[game_idx]->players)[i]->ip);
+                    strcat(new_game_msg_tail, "::"); // concat the separation token
+                    strcat(new_game_msg_tail, (games[game_idx]->players)[i]->ip); // concat IPv4 address
                 }
             }
 
+            // lastly, we determine the port_block_offset for each client, generate the unique NEW_GAME message, and send it
             int port_block_offset = 0;
             for(int i = 0; i < N_SESSION_PLAYERS; i++){
                 if((games[game_idx]->players)[i] != NULL){
-                    port_block_offset++;
+                    port_block_offset++; // increment by 1 to allocate the next port
 
+                    // initialise new msg instance and allocate enough memory for data part
                     msg new_game_msg;
                     new_game_msg.msg = malloc(256 + (n_players - 1)*UNAME_LEN);
                     if(new_game_msg.msg == NULL){
@@ -518,32 +591,45 @@ void* service_game_request(void* arg){
                     }
 
                     new_game_msg.msg_type = NEW_GAME;
-                    strcpy(new_game_msg.msg, new_game_msg_header);
-                    strcat(new_game_msg.msg, "::");
+                    strcpy(new_game_msg.msg, new_game_msg_header); // copy the header with game options first
+                    strcat(new_game_msg.msg, "::"); // concat the separation token
 
                     char port_block_offset_str[4];
-                    sprintf(port_block_offset_str, "%d", port_block_offset);
-                    strcat(new_game_msg.msg, port_block_offset_str);
+                    sprintf(port_block_offset_str, "%d", port_block_offset); // convert from int the port_block_offset of the client
+                    strcat(new_game_msg.msg, port_block_offset_str); // concat port_block_offset to the message
 
-                    strcat(new_game_msg.msg, new_game_msg_tail);
+                    strcat(new_game_msg.msg, new_game_msg_tail); // lastly, concat the tail with the IPv4 addresses
 
+                    // send to the client using the client_msg convenience function
                     client_msg(new_game_msg, (games[game_idx]->players)[i]->client_idx);
                 }
             }
 
+            /* In the case of a multi--player game session, we must wait for all the clients to send a P2P_READY message,
+             * i.e. we wait until n_players_p2p_ready == n_players. The variable n_players_p2p_ready must be incremented
+             * in a thread--safe manner by each service_client thread corresponding to a client which sent a P2P_READY
+             * message. This is discussed in detail in the project report.
+             *
+             * In short however, we make use of a conditional variable (p2p_ready) of type pthread_cond_t, along with a
+             * sequence of calls to pthread_cond_wait from the service_game_request thread and pthread_cond_broadcast
+             * from the service_client threads modifying n_players_p2p_ready held in the game session struct in question.
+             */
             if(game_type != CHILL){
                 games[game_idx]->n_players_p2p_ready = 0;
-                while (games[game_idx]->n_players_p2p_ready < n_players) {
+                while(games[game_idx]->n_players_p2p_ready < n_players){
                     pthread_cond_wait(&(games[game_idx]->p2p_ready), gameMutexes + game_idx);
                 }
             }
 
+            // initialise new msg instance and allocate enough memory for data part
             msg start_game_msg;
             start_game_msg.msg_type = START_GAME;
 
             start_game_msg.msg = malloc(1);
             strcpy(start_game_msg.msg, "");
 
+            // lastly, we send a START_GAME message to all clients in the game session
+            // in the context of a multiplayer game, this is only done after all clients have sent a P2P_READY message
             for(int i = 0; i < N_SESSION_PLAYERS; i++){
                 if((games[game_idx]->players)[i] != NULL){
                     client_msg(start_game_msg, (games[game_idx]->players)[i]->client_idx);
@@ -566,6 +652,7 @@ void* service_game_request(void* arg){
 void sfunc_leaderboard(int argc, char* argv[], int client_idx){}
 
 void sfunc_players(int argc, char* argv[], int client_idx){
+    // initialise new msg instance and allocate enough memory for data part
     msg send_msg;
     send_msg.msg = malloc(16 + MAX_CLIENTS*UNAME_LEN);
     if(send_msg.msg == NULL){
@@ -592,6 +679,7 @@ void sfunc_playerstats(int argc, char* argv[], int client_idx){}
 void sfunc_battle(int argc, char* argv[], int client_idx){
     int parsed_correctly = 1;
 
+    // initialise new msg instance and allocate enough memory for data part
     msg send_msg;
     send_msg.msg = malloc(128 + UNAME_LEN);
     if(send_msg.msg == NULL){
@@ -845,6 +933,7 @@ void sfunc_battle(int argc, char* argv[], int client_idx){
 }
 
 void sfunc_quick(int argc, char* argv[], int client_idx){
+    // initialise new msg instance and allocate enough memory for data part
     msg send_msg;
     send_msg.msg = malloc(128 + UNAME_LEN);
     if(send_msg.msg == NULL){
@@ -997,7 +1086,8 @@ void sfunc_chill(int argc, char* argv[], int client_idx){
     pthread_mutex_unlock(gameMutexes + game_idx);
 }
 
-void sfunc_go(int argc, char* argv[], int client_idx) {
+void sfunc_go(int argc, char* argv[], int client_idx){
+    // initialise new msg instance and allocate enough memory for data part
     msg send_msg;
     send_msg.msg = malloc(64);
     if(send_msg.msg == NULL){
@@ -1107,6 +1197,7 @@ void sfunc_ignore(int argc, char* argv[], int client_idx){
                     }
                 }
 
+                // initialise new msg instance and allocate enough memory for data part
                 msg send_to_client;
                 send_to_client.msg = malloc(64);
                 if(send_msg.msg == NULL){
@@ -1336,6 +1427,7 @@ int handle_chat_msg(char* chat_msg, int client_idx){
             }else{
                 smrerror("Error during tokenisation of client message");
 
+                // initialise new msg instance and allocate enough memory for data part
                 msg err_msg;
                 err_msg.msg = malloc(64);
                 if(err_msg.msg == NULL){
@@ -1461,6 +1553,7 @@ int handle_finished_game_msg(char* chat_msg, int client_idx){
         if(n_completed_players == games[game_idx]->n_players){
             game_finished = 1;
 
+            // initialise new msg instance and allocate enough memory for data part
             msg finished_msg;
             finished_msg.msg_type = CHAT;
             finished_msg.msg = malloc(256 + 3*UNAME_LEN);
@@ -1540,7 +1633,7 @@ int handle_p2p_read_msg(char* chat_msg, int client_idx){
             if((games[clients[client_idx]->game_idx]->players)[i] != NULL &&
                 (games[clients[client_idx]->game_idx]->players)[i]->client_idx == client_idx){
 
-		(games[clients[client_idx]->game_idx]->n_players_p2p_ready)++;
+		        (games[clients[client_idx]->game_idx]->n_players_p2p_ready)++;
                 pthread_cond_broadcast(&(games[clients[client_idx]->game_idx]->p2p_ready));
             }
         }
