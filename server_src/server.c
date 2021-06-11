@@ -1902,6 +1902,8 @@ void gameFinishedQ(int game_idx, int remove_client_flag){
     int game_finished = 0;
     int n_completed_players  = 0;
 
+    pthread_mutex_lock(gameMutexes + game_idx);
+
     for(int i = 0; i < N_SESSION_PLAYERS; i++){
         if((games[game_idx]->players)[i] != NULL){
             if((games[game_idx]->players)[i]->state == FINISHED || (games[game_idx]->players)[i]->state == DISCONNECTED){
@@ -1922,8 +1924,6 @@ void gameFinishedQ(int game_idx, int remove_client_flag){
         }
 
         int winner_idx;
-
-        pthread_mutex_lock(gameMutexes + game_idx);
 
         int game_type = games[game_idx]->game_type;
 
