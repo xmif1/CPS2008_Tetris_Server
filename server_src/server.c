@@ -696,16 +696,16 @@ void sfunc_leaderboard(int argc, char* argv[], int client_idx){
     for(int i = 0; i < 4; i++){
         // first write the title of the leaderboard, depending on the game mode
         if(i == RISING_TIDE){
-            strcat(leaderboard_msg.msg, "Rising Tide Leaderboard - ");
+            strcat(leaderboard_msg.msg, "Rising Tide Leaderboard\t- ");
         }
         else if(i == FAST_TRACK){
-            strcat(leaderboard_msg.msg, "\nFast Track Leaderboard - ");
+            strcat(leaderboard_msg.msg, "\nFast Track Leaderboard\t- ");
         }
         else if(i == BOOMER){
-            strcat(leaderboard_msg.msg, "\nBoomer Leaderboard - ");
+            strcat(leaderboard_msg.msg, "\nBoomer Leaderboard\t- ");
         }
         else{
-            strcat(leaderboard_msg.msg, "\nChill Leaderboard - ");
+            strcat(leaderboard_msg.msg, "\nChill Leaderboard\t- ");
         }
 
         strcat(leaderboard_msg.msg, "The top players are, in highest ranking order:");
@@ -787,11 +787,11 @@ void sfunc_playerstats(int argc, char* argv[], int client_idx){
             // append to message the nickname, no. of wins, no. of losses, and high score
             strcat(send_msg.msg, "\n\t");
             strcat(send_msg.msg, clients[i]->nickname);
-            strcat(send_msg.msg, " : # Wins = ");
+            strcat(send_msg.msg, ":\t# Wins = ");
             strcat(send_msg.msg, str_n_wins);
-            strcat(send_msg.msg, ", # Losses = ");
+            strcat(send_msg.msg, ",\t# Losses = ");
             strcat(send_msg.msg, str_n_losses);
-            strcat(send_msg.msg, ", High Score = ");
+            strcat(send_msg.msg, ",\tHigh Score = ");
             strcat(send_msg.msg, str_high_score);
         }
         pthread_mutex_unlock(clientMutexes + i);
@@ -1125,7 +1125,7 @@ void sfunc_quick(int argc, char* argv[], int client_idx){
         else if(N_SESSION_PLAYERS <= n_req_opponents){
             strcpy(send_msg.msg, "Invalid option: Too many opponents specified.");
         }
-        else if(n_req_opponents < 1){
+        else if(n_req_opponents < 2){
             strcpy(send_msg.msg, "Invalid option: Too few opponents specified.");
         }
         else if(n_available_opponents < n_req_opponents){
@@ -1152,7 +1152,7 @@ void sfunc_quick(int argc, char* argv[], int client_idx){
             strcpy((games[game_idx]->players)[0]->nickname, clients[client_idx]->nickname);
             inet_ntop(AF_INET, &(clients[client_idx]->clientaddrIn.sin_addr), (games[game_idx]->players)[0]->ip, INET_ADDRSTRLEN);
 
-            games[game_idx]->game_type = rand() % 4;
+            games[game_idx]->game_type = rand() % 3;
             games[game_idx]->game_idx = game_idx;
             games[game_idx]->time = (rand() % TIME_DEFAULT) + 1;
             games[game_idx]->n_winlines = (rand() % WINLINES_DEFAULT) + 1;
@@ -1491,26 +1491,57 @@ void sfunc_gamestats(int argc, char* argv[], int client_idx){
     }
 
     send_msg.msg_type = CHAT;
-    strcpy(send_msg.msg, "Ongoing Game Statistics:");
+
+    /* Three cases can occur:
+     *  (i)   If i = I then we send no game statistics, but an error is sent instead.
+     *  (ii)  If I = i + 1 then we send the game statistics of session with id i.
+     *  (iii) Otherwise, i = 0 and I = MAX_CLIENTS i.e. we send the game statistics of all active game sessions.
+     */
+    int i = 0; int I = MAX_CLIENTS;
+
+    if(argc == 2){ // if the statistics of a specific game have been requested
+        int game_idx = strtol(argv[1], NULL, 10); // convert the game id to int
+        if(game_idx >= MAX_CLIENTS || game_idx < 0){ // check if within range and if not, send an appropriate error message
+            I = 0;
+            strcpy(send_msg.msg, "Invalid gamestats options: Game ID is invalid.");
+        }
+        else{ // otherwise in a thread--safe manner verify that the game session with that index is indeed active
+            pthread_mutex_lock(gameMutexes + game_idx); // obtain mutex lock for specified game session struct
+            if(games[game_idx] != NULL){
+                i = game_idx; I = i + 1;
+                strcpy(send_msg.msg, "Ongoing Game Statistics:");
+            }else{ // if not active, send an appropriate error message
+                strcpy(send_msg.msg, "Invalid gamestats options: Game ID is invalid.");
+            }
+            pthread_mutex_unlock(gameMutexes + game_idx); // release mutex lock for specified game session struct
+        }
+    }
+    else if(argc > 2){ // if 2 or more arguments passed, send an appropriate error message
+        I = 0;
+        strcpy(send_msg.msg, "Invalid gamestats options: Too many specified.");
+    }
+    else{
+        strcpy(send_msg.msg, "Ongoing Game Statistics:");
+    }
 
     // access game statistics in a thread--safe manner and append to the message
-    for(int i = 0; i < MAX_CLIENTS; i++){
+    for(; i < I; i++){
         pthread_mutex_lock(gameMutexes + i); // get mutex lock for game_session struct at index i
 
         if(games[i] != NULL){ // if valid game_session struct at index i
 
             // first print an approriate header for the game session, specifying the game type
             if(games[i]->game_type == BOOMER){
-                strcpy(send_msg.msg, "\n\tGame Type = Boomer, Highest Ranking Players:");
+                strcpy(send_msg.msg, "\n\tGame Type:\tBoomer,\tHighest Ranking Players:");
             }
             else if(games[i]->game_type == RISING_TIDE){
-                strcpy(send_msg.msg, "\n\tGame Type = Rising Tide, Highest Ranking Players:");
+                strcpy(send_msg.msg, "\n\tGame Type:\tRising Tide,\tHighest Ranking Players:");
             }
             else if(games[i]->game_type == FAST_TRACK){
-                strcpy(send_msg.msg, "\n\tGame Type = Fast Track, Highest Ranking Players:");
+                strcpy(send_msg.msg, "\n\tGame Type:\tFast Track,\tHighest Ranking Players:");
             }
             else{
-                strcpy(send_msg.msg, "\n\tGame Type = Chill, Highest Ranking Players:");
+                strcpy(send_msg.msg, "\n\tGame Type:\tChill,\tHighest Ranking Players:");
             }
 
             // then print UP TO the top 3 players along with their score (recall a game can have 1+ players)
@@ -1518,7 +1549,7 @@ void sfunc_gamestats(int argc, char* argv[], int client_idx){
                 if((games[i]->top_three)[j] >= 0 && j < games[i]->n_players){
                     strcat(send_msg.msg, "\t");
                     strcat(send_msg.msg, (games[i]->players)[(games[i]->top_three)[j]]->nickname);
-                    strcat(send_msg.msg, "(");
+                    strcat(send_msg.msg, "\t(");
 
                     char score[7];
                     sprintf(score, "%d", (games[i]->players)[(games[i]->top_three)[j]]->score);

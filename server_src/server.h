@@ -128,7 +128,7 @@ pthread_mutex_t leaderboardMutex = PTHREAD_MUTEX_INITIALIZER;
 
 #define N_SFUNCS 10
 char* sfunc_dict[N_SFUNCS] = {"!leaderboard", "!players", "!playerstats", "!battle", "!quick", "!chill", "!go",
-                              "!ignore", "!nickname", "!help"};
+                              "!ignore", "!nickname", "!gamestats"};
 void (*sfunc[])(int argc, char *argv[], int client_idx) = {&sfunc_leaderboard, &sfunc_players, &sfunc_playerstats,
                                                            &sfunc_battle, &sfunc_quick, &sfunc_chill, &sfunc_go,
                                                            &sfunc_ignore, &sfunc_nickname, &sfunc_gamestats};
