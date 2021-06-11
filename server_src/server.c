@@ -773,15 +773,15 @@ void sfunc_playerstats(int argc, char* argv[], int client_idx){
         pthread_mutex_lock(clientMutexes + i);
         if(clients[i] != NULL){ // check if valid client struct
             // obtain string representation of number of wins
-            char str_n_wins[(int) floor(log10(clients[i]->n_wins))+2];
+            char str_n_wins[(int) floor(log10(clients[i]->n_wins + 1))+2];
             sprintf(str_n_wins, "%d", clients[i]->n_wins);
 
             // obtain string representation of number of losses
-            char str_n_losses[(int) floor(log10(clients[i]->n_losses))+2];
+            char str_n_losses[(int) floor(log10(clients[i]->n_losses + 1))+2];
             sprintf(str_n_losses, "%d", clients[i]->n_losses);
 
             // obtain string representation of high score
-            char str_high_score[(int) floor(log10(clients[i]->high_score))+2];
+            char str_high_score[(int) floor(log10(clients[i]->high_score + 1))+2];
             sprintf(str_high_score, "%d", clients[i]->high_score);
 
             // append to message the nickname, no. of wins, no. of losses, and high score
