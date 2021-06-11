@@ -89,6 +89,7 @@ int handle_finished_game_msg(char* chat_msg, int client_idx);
 int handle_p2p_read_msg(char* chat_msg, int client_idx);
 void* service_client(void* arg);
 void* service_game_request(void* arg);
+void gameTopThreeUpdate(int game_idx, int player_idx);
 void gameFinishedQ(int game_idx, int remove_client_flag);
 void sig_handler();
 void gen_nickname(char nickname[UNAME_LEN]);
