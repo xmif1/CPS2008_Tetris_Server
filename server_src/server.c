@@ -1889,7 +1889,10 @@ int handle_finished_game_msg(char* chat_msg, int client_idx){
                     break;
                 }
             }
+        }else{
+            (games[game_idx]->top_three)[0] = (games[game_idx]->players)[player_idx]->score;
         }
+
         pthread_mutex_unlock(gameMutexes + game_idx);
 
         gameFinishedQ(game_idx, -1);
@@ -1966,11 +1969,13 @@ void gameFinishedQ(int game_idx, int remove_client_flag){
                     pthread_mutex_lock(clientMutexes + curr_client_idx);
                     clients[curr_client_idx]->game_idx = -1;
 
-                    if(curr_client_idx != winner_idx && clients[curr_client_idx] != NULL){
-                        clients[curr_client_idx]->n_losses++;
-                    }
-                    else if(curr_client_idx == winner_idx && clients[curr_client_idx] != NULL){
-                        clients[curr_client_idx]->n_wins++;
+                    if(game_type != CHILL){
+                        if(curr_client_idx != winner_idx && clients[curr_client_idx] != NULL){
+                            clients[curr_client_idx]->n_losses++;
+                        }
+                        else if(curr_client_idx == winner_idx && clients[curr_client_idx] != NULL){
+                            clients[curr_client_idx]->n_wins++;
+                        }
                     }
 
                     if(clients[curr_client_idx]->high_score < (games[game_idx]->players)[i]->score){
