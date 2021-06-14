@@ -194,26 +194,8 @@ void add_client(int client_fd, struct sockaddr_in clientaddrIn){
         client_msg(joined_msg, i); // client_msg is a convience function outlined later on to handle sending msgs to clients
 
         free(joined_msg.msg); // free memory as necessary
-    }else{ // if maximum number of clients has been exceeded, send an appropriate message to the client and disconnect
-        msg err_msg;
-        err_msg.msg = malloc(80);
-        if(err_msg.msg == NULL){
-            mrerror("Error encountered while allocating memory");
-        }
-
-        // inform the client that the maximum number of clients has been achieved 
-        err_msg.msg_type = CHAT;
-        strcpy(err_msg.msg, "Maximum number of clients achieved: unable to connect at the moment.");
-
-        // attempt to send to the client
-        if(send(client_fd, (void*) &err_msg, sizeof(msg), 0) < 0){
-            smrerror("Error encountered while communicating with new client");
-        }
-
-        // and then disconnect by closing the file descriptor
+    }else{ // if maximum number of clients has been exceeded, disconnect the client
         close(client_fd);
-
-        free(err_msg.msg); // free memory as necessary
     }
 }
 
