@@ -1917,7 +1917,7 @@ void gameTopThreeUpdate(int game_idx, int player_idx){
             }
         }
     }else{
-        (games[game_idx]->top_three)[0] = (games[game_idx]->players)[player_idx]->score;
+        (games[game_idx]->top_three)[0] = 0;
     }
 
     pthread_mutex_unlock(gameMutexes + game_idx);
