@@ -1237,7 +1237,7 @@ void sfunc_chill(int argc, char* argv[], int client_idx){
     games[game_idx]->game_idx = game_idx;
     games[game_idx]->seed = rand() % 1000;
 
-    for(int i = 1; i < N_SESSION_PLAYERS; i++){
+   for(int i = 1; i < N_SESSION_PLAYERS; i++){
         games[game_idx]->players[i] = NULL;
     }
 
@@ -1395,6 +1395,8 @@ void sfunc_nickname(int argc, char* argv[], int client_idx){
         mrerror("Error encountered while allocating memory");
     }
 
+    send_msg.msg_type = CHAT;
+
     int valid_nickname = 1; // flag to maintain whether a nickname is valid
 
     if(argc != 2){ // if no nickname or multiple options provided, send an appropriate error message
@@ -1532,27 +1534,38 @@ void sfunc_gamestats(int argc, char* argv[], int client_idx){
 
             // first print an approriate header for the game session, specifying the game type
             if(games[i]->game_type == BOOMER){
-                strcpy(send_msg.msg, "\n\tGame Type:\tBoomer,\tHighest Ranking Players:");
+                strcat(send_msg.msg, "\n\tGame Type:\tBoomer,\tHighest Scoring Players:");
             }
             else if(games[i]->game_type == RISING_TIDE){
-                strcpy(send_msg.msg, "\n\tGame Type:\tRising Tide,\tHighest Ranking Players:");
+                strcat(send_msg.msg, "\n\tGame Type:\tRising Tide,\tHighest Scoring Players:");
             }
             else if(games[i]->game_type == FAST_TRACK){
-                strcpy(send_msg.msg, "\n\tGame Type:\tFast Track,\tHighest Ranking Players:");
+                strcat(send_msg.msg, "\n\tGame Type:\tFast Track,\tHighest Scoring Players:");
             }
             else{
-                strcpy(send_msg.msg, "\n\tGame Type:\tChill,\tHighest Ranking Players:");
+                strcat(send_msg.msg, "\n\tGame Type:\tChill,\tCurrent Score:");
+            }
+
+            int top_three[3] = {-1, -1, -1};
+            int top_three_scores[3] = {0, 0, 0};
+
+            for(int j = 0; j < N_SESSION_PLAYERS; j++){
+                if((games[i]->players)[j] != NULL && top_three_scores[0] < (games[i]->players)[j]->score){
+                    top_three_scores[2] = top_three_scores[1]; top_three[2] = top_three[1];
+                    top_three_scores[1] = top_three_scores[0]; top_three[1] = top_three[0];
+                    top_three_scores[0] = (games[i]->players)[j]->score; top_three[0] = j;
+                }
             }
 
             // then print UP TO the top 3 players along with their score (recall a game can have 1+ players)
             for(int j = 0; j < 3; j++){
-                if((games[i]->top_three)[j] >= 0 && j < games[i]->n_players){
+                if(top_three[j] >= 0 && j < games[i]->n_players){
                     strcat(send_msg.msg, "\t");
-                    strcat(send_msg.msg, (games[i]->players)[(games[i]->top_three)[j]]->nickname);
+                    strcat(send_msg.msg, (games[i]->players)[top_three[j]]->nickname);
                     strcat(send_msg.msg, "\t(");
 
                     char score[7];
-                    sprintf(score, "%d", (games[i]->players)[(games[i]->top_three)[j]]->score);
+                    sprintf(score, "%d", top_three_scores[j]);
                     strcat(send_msg.msg, score);
 
                     strcat(send_msg.msg, " points)");
@@ -1821,15 +1834,17 @@ int handle_chat_msg(char* chat_msg, int client_idx){
 }
 
 int handle_score_update_msg(char* chat_msg, int client_idx){
+    int player_idx = 0;
+
     pthread_mutex_lock(clientMutexes + client_idx);
     if(clients[client_idx] != NULL){
         pthread_mutex_lock(gameMutexes + clients[client_idx]->game_idx);
-        for(int i = 0; i < N_SESSION_PLAYERS; i++){
-            if((games[clients[client_idx]->game_idx]->players)[i] != NULL
-                && (games[clients[client_idx]->game_idx]->players)[i]->client_idx == client_idx
-                && (games[clients[client_idx]->game_idx]->players)[i]->state == CONNECTED){
+        for(; player_idx < N_SESSION_PLAYERS; player_idx++){
+            if((games[clients[client_idx]->game_idx]->players)[player_idx] != NULL
+                && (games[clients[client_idx]->game_idx]->players)[player_idx]->client_idx == client_idx
+                && (games[clients[client_idx]->game_idx]->players)[player_idx]->state == CONNECTED){
 
-                (games[clients[client_idx]->game_idx]->players)[i]->score = strtol(chat_msg, NULL, 10);
+                (games[clients[client_idx]->game_idx]->players)[player_idx]->score = strtol(chat_msg, NULL, 10);
             }
         }
         pthread_mutex_unlock(gameMutexes + clients[client_idx]->game_idx);
@@ -1840,8 +1855,8 @@ int handle_score_update_msg(char* chat_msg, int client_idx){
 }
 
 int handle_finished_game_msg(char* chat_msg, int client_idx){
-    int game_idx = -1;
     int player_idx = 0;
+    int game_idx = -1;
 
     pthread_mutex_lock(clientMutexes + client_idx);
     if(clients[client_idx] != NULL){
@@ -1859,46 +1874,53 @@ int handle_finished_game_msg(char* chat_msg, int client_idx){
             }
         }
 
-        if(games[game_idx]->game_type == RISING_TIDE){
-            // shift down rankings; last player standing gets first place, etc
-            (games[game_idx]->top_three)[2] = (games[game_idx]->top_three)[1];
-            (games[game_idx]->top_three)[1] = (games[game_idx]->top_three)[0];
-            (games[game_idx]->top_three)[0] = player_idx;
-        }
-        else if(games[game_idx]->game_type == FAST_TRACK){
-            for(int i = 0; i < 3; i++){
-                if((games[game_idx]->top_three)[i] < 0){
-                    (games[game_idx]->top_three)[i] = player_idx;
-                    break;
-                }
-            }
-        }else if(games[game_idx]->game_type == BOOMER){
-            int player_score = (games[game_idx]->players)[player_idx]->score;
-
-            for(int i = 0; i < 3; i++){
-                if((games[game_idx]->top_three)[i] < 0){
-                    (games[game_idx]->top_three)[i] = player_idx;
-                    break;
-                }
-                else if((games[game_idx]->players)[(games[game_idx]->top_three)[i]]->score < player_score){
-                    for(int j = i; j < 2; j++){
-                        (games[game_idx]->top_three)[j+1] = (games[game_idx]->top_three)[j];
-                    }
-
-                    (games[game_idx]->top_three)[i] = player_idx;
-                    break;
-                }
-            }
-        }else{
-            (games[game_idx]->top_three)[0] = (games[game_idx]->players)[player_idx]->score;
-        }
-
         pthread_mutex_unlock(gameMutexes + game_idx);
 
+        gameTopThreeUpdate(game_idx, player_idx);
         gameFinishedQ(game_idx, -1);
     }
 
     return 0;
+}
+
+void gameTopThreeUpdate(int game_idx, int player_idx){
+    pthread_mutex_lock(gameMutexes + game_idx);
+
+    if(games[game_idx]->game_type == RISING_TIDE){
+        // shift down rankings; last player standing gets first place, etc
+        (games[game_idx]->top_three)[2] = (games[game_idx]->top_three)[1];
+        (games[game_idx]->top_three)[1] = (games[game_idx]->top_three)[0];
+        (games[game_idx]->top_three)[0] = player_idx;
+    }
+    else if(games[game_idx]->game_type == FAST_TRACK){
+        for(int i = 0; i < 3; i++){
+            if((games[game_idx]->top_three)[i] < 0){
+                (games[game_idx]->top_three)[i] = player_idx;
+                break;
+            }
+        }
+    }else if(games[game_idx]->game_type == BOOMER){
+        int player_score = (games[game_idx]->players)[player_idx]->score;
+
+        for(int i = 0; i < 3; i++){
+            if((games[game_idx]->top_three)[i] < 0){
+                (games[game_idx]->top_three)[i] = player_idx;
+                break;
+            }
+            else if((games[game_idx]->players)[(games[game_idx]->top_three)[i]]->score < player_score){
+                for(int j = i; j < 2; j++){
+                    (games[game_idx]->top_three)[j+1] = (games[game_idx]->top_three)[j];
+                }
+
+                (games[game_idx]->top_three)[i] = player_idx;
+                break;
+            }
+        }
+    }else{
+        (games[game_idx]->top_three)[0] = (games[game_idx]->players)[player_idx]->score;
+    }
+
+    pthread_mutex_unlock(gameMutexes + game_idx);
 }
 
 void gameFinishedQ(int game_idx, int remove_client_flag){
@@ -1926,7 +1948,7 @@ void gameFinishedQ(int game_idx, int remove_client_flag){
             mrerror("Error encountered while allocating memory");
         }
 
-        int winner_idx;
+        int winner_idx = -1;
 
         int game_type = games[game_idx]->game_type;
 
@@ -1947,7 +1969,9 @@ void gameFinishedQ(int game_idx, int remove_client_flag){
                 }
             }
 
-            winner_idx = (games[game_idx]->players)[(games[game_idx]->top_three)[0]]->client_idx;
+            if((games[game_idx]->top_three)[0] >= 0){
+                winner_idx = (games[game_idx]->players)[(games[game_idx]->top_three)[0]]->client_idx;
+            }
         }
         else{
             strcpy(finished_msg.msg, "Game finished! Your score was ");
@@ -1994,25 +2018,27 @@ void gameFinishedQ(int game_idx, int remove_client_flag){
         pthread_mutex_lock(&leaderboardMutex);
         for(int i = 0; i < 3; i++){
             int player_idx = (games[game_idx]->top_three)[i];
-            int player_score = (games[game_idx]->players)[player_idx]->score;
-            char player_nickname[UNAME_LEN]; strcpy(player_nickname, (games[game_idx]->players)[player_idx]->nickname);
+            if(player_idx >= 0){
+                int player_score = (games[game_idx]->players)[player_idx]->score;
+                char player_nickname[UNAME_LEN]; strcpy(player_nickname, (games[game_idx]->players)[player_idx]->nickname);
 
-            for(int j = 0; j < 3; j++){
-                if((leaderboards[game_type].top_three)[j].score < 0){
-                    (leaderboards[game_type].top_three)[j].score = player_score;
-                    strcpy((leaderboards[game_type].top_three)[j].nickname, player_nickname);
+                for(int j = 0; j < 3; j++){
+                    if((leaderboards[game_type].top_three)[j].score < 0){
+                        (leaderboards[game_type].top_three)[j].score = player_score;
+                        strcpy((leaderboards[game_type].top_three)[j].nickname, player_nickname);
 
-                    break;
-                }
-                else if((leaderboards[game_type].top_three)[j].score < player_score){
-                    for(int k = j; k < 2; k++){
-                        (leaderboards[game_type].top_three)[k+1].score = (leaderboards[game_type].top_three)[k].score;
-                        strcpy((leaderboards[game_type].top_three)[k+1].nickname, (leaderboards[game_type].top_three)[k].nickname);
+                        break;
                     }
+                    else if((leaderboards[game_type].top_three)[j].score < player_score){
+                        for(int k = j; k < 2; k++){
+                            (leaderboards[game_type].top_three)[k+1].score = (leaderboards[game_type].top_three)[k].score;
+                            strcpy((leaderboards[game_type].top_three)[k+1].nickname, (leaderboards[game_type].top_three)[k].nickname);
+                        }
 
-                    (leaderboards[game_type].top_three)[j].score = player_score;
-                    strcpy((leaderboards[game_type].top_three)[j].nickname, player_nickname);
-                    break;
+                        (leaderboards[game_type].top_three)[j].score = player_score;
+                        strcpy((leaderboards[game_type].top_three)[j].nickname, player_nickname);
+                        break;
+                    }
                 }
             }
         }
