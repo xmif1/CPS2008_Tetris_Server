@@ -1039,32 +1039,39 @@ void sfunc_battle(int argc, char* argv[], int client_idx){
 
         // if at no point has parsed_correctly been set to 0
         if(parsed_correctly){
-            if(games[game_idx]->n_baselines < 0){
+            if(games[game_idx]->n_baselines < 0){ // if baselines option not set, use default value
                 games[game_idx]->n_baselines = BASELINES_DEFAULT;
             }
 
-            if(games[game_idx]->n_winlines < 0){
+            if(games[game_idx]->n_winlines < 0){ // if winlines option not set, use default value
                 games[game_idx]->n_winlines = WINLINES_DEFAULT;
             }
 
-            if(games[game_idx]->time < 0){
+            if(games[game_idx]->time < 0){ // if time option not set, use default value
                 games[game_idx]->time = TIME_DEFAULT;
             }
 
+            // generate random seed to be used by front-end to generate same sequence of tetrominoes for all clients
             games[game_idx]->seed = rand() % 1000;
 
+            // initialise the top three player indices to -1 (i.e. all unknown so far)
             (games[game_idx]->top_three)[0] = (games[game_idx]->top_three)[1] = (games[game_idx]->top_three)[2] = -1;
 
-            pthread_mutex_lock(clientMutexes + client_idx);
+            pthread_mutex_lock(clientMutexes + client_idx); // obtain mutex lock for client
+            // set the client's game_idx i.e they can no longer join other game sessions until this one finishes
             clients[client_idx]->game_idx = game_idx;
-            pthread_mutex_unlock(clientMutexes + client_idx);
+            pthread_mutex_unlock(clientMutexes + client_idx); // release mutex lock for client
 
+            // create service_game_request thread to handle game session creation
+            // kindly see report and in-line comments for further information of the responsibilities of this thread
+            // a handy flowchart is also given in the report outlining game session creation incl. this thread
             if(pthread_create(game_threads + game_idx, NULL, service_game_request, (void*) &(clients[client_idx]->game_idx)) != 0){
                 mrerror("Error while creating thread to service newly created game session");
             }
 
-            pthread_mutex_unlock(gameMutexes + game_idx);
+            pthread_mutex_unlock(gameMutexes + game_idx); // release the mutex lock reserved for the game_session struct
 
+            // lastly, send a message to the calling client informing them that the invite has been send to all players
             strcpy(send_msg.msg, "Game invite sent to the other players...waiting for their response....");
             client_msg(send_msg, client_idx);
         }
@@ -1079,6 +1086,10 @@ void sfunc_battle(int argc, char* argv[], int client_idx){
     free(send_msg.msg); // free memory as necessary
 }
 
+/* Responsible for handling !quick commands recieved from a client, which checks if the number of requested players is
+ * less than the number of connected clients available to join a game session, and if this is the case a randomised
+ * game session is created, incl. randomly selected players, and an invite is sent.
+ */
 void sfunc_quick(int argc, char* argv[], int client_idx){
     // initialise new msg instance and allocate enough memory for data part
     msg send_msg;
@@ -1088,79 +1099,96 @@ void sfunc_quick(int argc, char* argv[], int client_idx){
     }
     send_msg.msg_type = CHAT;
 
-    if(argc == 1){
+    if(argc == 1){ // if number of players to invite is unspecified, report error
         strcpy(send_msg.msg, "Invalid option: Please specify the number of opponents you wish to join the session.");
     }else{
-        int n_req_opponents = strtol(argv[1], NULL, 10);
+        int n_req_opponents = strtol(argv[1], NULL, 10); // else decode the number of players to invite
 
         int n_available_opponents = 0;
+        // in a thread safe manner, iterate through the clients list and count how many have game_idx = -1 i.e. available
+        // to join a game session
         for(int i = 0; i < MAX_CLIENTS; i++){
-            pthread_mutex_lock(clientMutexes + i);
+            pthread_mutex_lock(clientMutexes + i); // obtain mutex lock for all the clients -- will release collectively afterwards
             if(i != client_idx && clients[i] != NULL && clients[i]->game_idx < 0){
-                n_available_opponents++;
+                n_available_opponents++; // if connected and not in game, accumulate
             }
         }
 
+        // if client requesting the game is already in a game session, send an appropriate error message
         if(clients[client_idx] != NULL && clients[client_idx]->game_idx >= 0){
             strcpy(send_msg.msg, "Cannot join another game while one is in progress.");
         }
+        // else if the number of requested opponenents exceeds the maximum allowed in a game session
         else if(N_SESSION_PLAYERS <= n_req_opponents){
             strcpy(send_msg.msg, "Invalid option: Too many opponents specified.");
         }
-        else if(n_req_opponents < 2){
+        // else if the number of opponents is less than one i.e. invalid number
+        else if(n_req_opponents < 1){
             strcpy(send_msg.msg, "Invalid option: Too few opponents specified.");
         }
+        // else if not enough players are connected and available to join a game session
         else if(n_available_opponents < n_req_opponents){
             strcpy(send_msg.msg, "Invalid option: Not enough players are available to join the game session.");
         }
-        else{
+        else{ // otherwise, generate randomised game options and send invite
             int game_idx = 0;
+
+            // we begin by searching for the next available free slot in the games array
             for(; game_idx < MAX_CLIENTS; game_idx++){
-                pthread_mutex_lock(gameMutexes + game_idx);
-                if(games[game_idx] == NULL){
-                    break;
+                pthread_mutex_lock(gameMutexes + game_idx); // obtain mutex lock
+                if(games[game_idx] == NULL){ // check if free; if true, then break -- in which case game_idx will be set to this slot
+                    break; // note that when we break, we still have hold of the mutex lock
                 }
                 else{
-                    pthread_mutex_unlock(gameMutexes + game_idx);
+                    pthread_mutex_unlock(gameMutexes + game_idx); // release mutex lock if not free
                 }
             }
 
-            games[game_idx] = malloc(sizeof(game_session));
+            games[game_idx] = malloc(sizeof(game_session)); // allocate memory for a new game_session struct
 
+            /* initialise game_session struct; we begin by initialising the struct representing the client which initiated the
+             * session we store certain meta--data, eg. the score is initially 0, we keep a copy of the nickname, as well as
+             * a textual representation of the IPv4 address.
+             */
             (games[game_idx]->players)[0] = malloc(sizeof(ingame_client));
             (games[game_idx]->players)[0]->client_idx = client_idx;
             (games[game_idx]->players)[0]->state = CONNECTED;
             (games[game_idx]->players)[0]->score = 0;
             strcpy((games[game_idx]->players)[0]->nickname, clients[client_idx]->nickname);
+            // textual representation of IPv4 address
             inet_ntop(AF_INET, &(clients[client_idx]->clientaddrIn.sin_addr), (games[game_idx]->players)[0]->ip, INET_ADDRSTRLEN);
 
-            games[game_idx]->game_type = rand() % 3;
+            // continue initialising game struct...
             games[game_idx]->game_idx = game_idx;
+            // all the following options are generated randomly...
+            games[game_idx]->game_type = rand() % 3;
             games[game_idx]->time = (rand() % TIME_DEFAULT) + 1;
             games[game_idx]->n_winlines = (rand() % WINLINES_DEFAULT) + 1;
             games[game_idx]->n_baselines = (rand() % BASELINES_DEFAULT) + 1;
             games[game_idx]->seed = rand() % 1000;
 
+            // randomly select opponents; note that we hold the mutex locks for all the clients
             for(int i = 1; i <= n_req_opponents; i++){
                 int opponent_idx, added_player;
-                opponent_idx = added_player = 0;
+                opponent_idx = added_player = 0; // flag to maintain if a player has been added
 
-                while(!added_player){
-                    opponent_idx = rand() % MAX_CLIENTS;
+                while(!added_player){ // loop until we have added the i^th client
+                    opponent_idx = rand() % MAX_CLIENTS; // randomly select client index
 
                     if(clients[opponent_idx] == NULL || clients[opponent_idx]->game_idx >= 0){
-                        continue;
+                        continue; // if client struct at index is unitialised or client is in a game session, skip
                     }else{
-                        added_player = 1;
-                        for(int j = 0; j < i; j++){
+                        added_player = 1; // otherwise flag to break while loop, signalling that i clients have been added so far
+                        for(int j = 0; j < i; j++){ // ensure that the client index choosen has not already been selected
                             if((games[game_idx]->players)[j]->client_idx == opponent_idx){
-                                added_player = 0;
+                                added_player = 0; // if already selected, then reset flag to 0, i.e. i^th player NOT added
                                 break;
                             }
                         }
                     }
                 }
 
+                // once i^th player has been choosen, register instance in the game_session struct
                 (games[game_idx]->players)[i] = malloc(sizeof(ingame_client));
                 (games[game_idx]->players)[i]->state = WAITING;
                 (games[game_idx]->players)[i]->score = 0;
@@ -1172,20 +1200,26 @@ void sfunc_quick(int argc, char* argv[], int client_idx){
                 games[game_idx]->players[i] = NULL;
             }
 
+            // initialise the top three player indices to -1 (i.e. all unknown so far)
             (games[game_idx]->top_three)[0] = (games[game_idx]->top_three)[1] = (games[game_idx]->top_three)[2] = -1;
 
+            // set the client's game_idx i.e they can no longer join other game sessions until this one finishes
             clients[client_idx]->game_idx = game_idx;
 
+            // create service_game_request thread to handle game session creation
+            // kindly see report and in-line comments for further information of the responsibilities of this thread
+            // a handy flowchart is also given in the report outlining game session creation incl. this thread
             if(pthread_create(game_threads + game_idx, NULL, service_game_request, (void*) &(clients[client_idx]->game_idx)) != 0){
                 mrerror("Error while creating thread to service newly created game session");
             }
 
-            pthread_mutex_unlock(gameMutexes + game_idx);
+            pthread_mutex_unlock(gameMutexes + game_idx); // release the mutex lock reserved for the game_session struct
 
+            // lastly, send a message to the calling client informing them that the invite has been send to all players
             strcpy(send_msg.msg, "Game invite sent to the other players...waiting for their response....");
         }
 
-        for(int i = 0; i < MAX_CLIENTS; i++){
+        for(int i = 0; i < MAX_CLIENTS; i++){ // release mutex locks for all the clients
             pthread_mutex_unlock(clientMutexes + i);
         }
     }
@@ -1194,44 +1228,60 @@ void sfunc_quick(int argc, char* argv[], int client_idx){
     free(send_msg.msg); // free memory as necessary
 }
 
+// Handles the !chill command, populating a game_session struct for a single player instance and initialising a service_game_request thread
 void sfunc_chill(int argc, char* argv[], int client_idx){
     int game_idx = 0;
+
+    // we begin by searching for the next available free slot in the games array
     for(; game_idx < MAX_CLIENTS; game_idx++){
-        pthread_mutex_lock(gameMutexes + game_idx);
-        if(games[game_idx] == NULL){
-            break;
+        pthread_mutex_lock(gameMutexes + game_idx); // obtain mutex lock
+        if(games[game_idx] == NULL){ // check if free; if true, then break -- in which case game_idx will be set to this slot
+            break; // note that when we break, we still have hold of the mutex lock
         }
         else{
-            pthread_mutex_unlock(gameMutexes + game_idx);
+            pthread_mutex_unlock(gameMutexes + game_idx); // release mutex lock if not free
         }
     }
 
-    games[game_idx] = malloc(sizeof(game_session));
+    games[game_idx] = malloc(sizeof(game_session)); // allocate memory for a new game_session struct
 
+    /* initialise game_session struct; we begin by initialising the struct representing the client which initiated the
+     * session we store certain meta--data, eg. the score is initially 0, we keep a copy of the nickname, as well as
+     * a textual representation of the IPv4 address.
+     */
     (games[game_idx]->players)[0] = malloc(sizeof(ingame_client));
     (games[game_idx]->players)[0]->client_idx = client_idx;
     (games[game_idx]->players)[0]->state = CONNECTED;
     (games[game_idx]->players)[0]->score = 0;
     strcpy((games[game_idx]->players)[0]->nickname, clients[client_idx]->nickname);
+    // textual representation of IPv4 address
     inet_ntop(AF_INET, &(clients[client_idx]->clientaddrIn.sin_addr), (games[game_idx]->players)[0]->ip, INET_ADDRSTRLEN);
 
-    games[game_idx]->game_type = CHILL;
+    games[game_idx]->game_type = CHILL; // set game mode to CHILL i.e. single player
     games[game_idx]->game_idx = game_idx;
     games[game_idx]->seed = rand() % 1000;
 
-   for(int i = 1; i < N_SESSION_PLAYERS; i++){
+    // all other player instances besides that at index 0 are NULL in this case, since single player session
+    for(int i = 1; i < N_SESSION_PLAYERS; i++){
         games[game_idx]->players[i] = NULL;
     }
 
+    // initialise the top three player indices to -1 (i.e. all unknown so far -- indeed, there will only be at most 1 in
+    // single player mode, eventually)
     (games[game_idx]->top_three)[0] = (games[game_idx]->top_three)[1] = (games[game_idx]->top_three)[2] = -1;
 
+    // set the client's game_idx i.e they can no longer join other game sessions until this one finishes
     clients[client_idx]->game_idx = game_idx;
 
     if(pthread_create(game_threads + game_idx, NULL, service_game_request, (void*) &(clients[client_idx]->game_idx)) != 0){
         mrerror("Error while creating thread to service newly created game session");
     }
 
-    pthread_mutex_unlock(gameMutexes + game_idx);
+    // create service_game_request thread to handle game session creation
+    // kindly see report and in-line comments for further information of the responsibilities of this thread
+    // a handy flowchart is also given in the report outlining game session creation incl. this thread
+    pthread_mutex_unlock(gameMutexes + game_idx); // release the mutex lock reserved for the game_session struct
+    // observe that no NEW_GAME message is sent here; there's no need
 }
 
 void sfunc_go(int argc, char* argv[], int client_idx){
@@ -1905,12 +1955,16 @@ void gameTopThreeUpdate(int game_idx, int player_idx){
     pthread_mutex_unlock(gameMutexes + game_idx);
 }
 
+// Utility function which checks if a game session is finished, informs the clients of the top ranking players, updates
+// the global leaderboards as necessary (in a thread safe manner), and frees any memory related to the game session.
 void gameFinishedQ(int game_idx, int remove_client_flag){
-    int game_finished = 0;
+    int game_finished = 0; // flag to signal game completion
     int n_completed_players  = 0;
 
-    pthread_mutex_lock(gameMutexes + game_idx);
+    pthread_mutex_lock(gameMutexes + game_idx); // obtain mutex lock for game_session struct
 
+    // iterate through all the client instances in the game session struct, counting the number of instances that have
+    // successfully finished or erroneously disconnected
     for(int i = 0; i < N_SESSION_PLAYERS; i++){
         if((games[game_idx]->players)[i] != NULL){
             if((games[game_idx]->players)[i]->state == FINISHED || (games[game_idx]->players)[i]->state == DISCONNECTED){
@@ -1919,8 +1973,10 @@ void gameFinishedQ(int game_idx, int remove_client_flag){
         }
     }
 
+    // if number of non active players (which we consider as completed) is equal to the number of players that joined the
+    // game session, then the game has finished...
     if(n_completed_players == games[game_idx]->n_players){
-        game_finished = 1;
+        game_finished = 1; // flag game finish...
 
         // initialise new msg instance and allocate enough memory for data part
         msg finished_msg;
@@ -1930,14 +1986,15 @@ void gameFinishedQ(int game_idx, int remove_client_flag){
             mrerror("Error encountered while allocating memory");
         }
 
-        int winner_idx = -1;
+        int winner_idx = -1; // will eventually maintain the client_idx of the winner in a multiplayer game mode
 
-        int game_type = games[game_idx]->game_type;
+        int game_type = games[game_idx]->game_type; // keep reference of the game type
 
-        if(game_type != CHILL){
+        if(game_type != CHILL){ // if multiplayer mode...
+            // send message to all clients still online, listing (up to) the top three scoring player...
             strcpy(finished_msg.msg, "All players have completed the game! The top players are, in highest ranking order:");
 
-            for(int i = 0; i < 3; i++){
+            for(int i = 0; i < 3; i++){ // append the nickname and score of each of the top three scoring players
                 if((games[game_idx]->top_three)[i] >= 0 && i < games[game_idx]->n_players){
                     strcat(finished_msg.msg, "\n\t");
                     strcat(finished_msg.msg, (games[game_idx]->players)[(games[game_idx]->top_three)[i]]->nickname);
@@ -1951,11 +2008,13 @@ void gameFinishedQ(int game_idx, int remove_client_flag){
                 }
             }
 
+            // if a highest ranking player exists, i.e. at least 1 player scored 1 point, set winner_idx to their client_idx
             if((games[game_idx]->top_three)[0] >= 0){
                 winner_idx = (games[game_idx]->players)[(games[game_idx]->top_three)[0]]->client_idx;
             }
         }
-        else{
+        else{ // else if single player mode...
+            // send a message to the sole client with their score
             strcpy(finished_msg.msg, "Game finished! Your score was ");
 
             char score[7];
@@ -1964,59 +2023,85 @@ void gameFinishedQ(int game_idx, int remove_client_flag){
 
             strcat(finished_msg.msg, " points.");
 
-            winner_idx = (games[game_idx]->players)[0]->client_idx;
+            winner_idx = (games[game_idx]->players)[0]->client_idx; // by default the winner_idx is that of the only client
         }
 
+        /* When a client abruptly disconnects while being in a game session, we must check if that client was the last
+         * client in the game session to finish. If we do not carry out such a check, this could leave 'zombie' active
+         * game sessions, with the leaderboards etc never updated accordingly. Hence the call to remove_client must
+         * subsequently call gameFinishedQ. The remove_client_flag is set to the client_idx to be removed.
+         *
+         * This prevents an infinite recursive call chain as follows:
+         *                          remove_client -> gameFinishedQ -> client_msg -> remove_client
+         * which may occur if we attempt to message the client in the process of being removed.
+         */
+
         for(int i = 0; i < N_SESSION_PLAYERS; i++){
+            // update game statistics of active clients in the game session in a thread--safe manner
             if((games[game_idx]->players)[i] != NULL && (games[game_idx]->players)[i]->state != DISCONNECTED){
                 int curr_client_idx = (games[game_idx]->players)[i]->client_idx;
 
+                // ensure that we do not attempt to update the data structures or message a client for a client in the
+                // process of being disconnected; if we do not protect against, we get a recursive call chain:
+                // remove_client -> gameFinishedQ -> client_msg -> remove_client
                 if(remove_client_flag != curr_client_idx){
-                    pthread_mutex_lock(clientMutexes + curr_client_idx);
-                    clients[curr_client_idx]->game_idx = -1;
+                    pthread_mutex_lock(clientMutexes + curr_client_idx); // obtain mutex lock for client
 
-                    if(game_type != CHILL){
-                        if(curr_client_idx != winner_idx && clients[curr_client_idx] != NULL){
-                            clients[curr_client_idx]->n_losses++;
+                    if(clients[curr_client_idx] != NULL){
+                        clients[curr_client_idx]->game_idx = -1; // set to -1 to signal that available once again to join a game
+
+                        if(game_type != CHILL){ // if multiplayer game session, update win/loss statistics
+                            if(curr_client_idx != winner_idx){ // if not winner, inc. number of losses
+                                clients[curr_client_idx]->n_losses++;
+                            }
+                            else if(curr_client_idx == winner_idx){ // else inc. number of wins
+                                clients[curr_client_idx]->n_wins++;
+                            }
                         }
-                        else if(curr_client_idx == winner_idx && clients[curr_client_idx] != NULL){
-                            clients[curr_client_idx]->n_wins++;
+
+                        // if new score is higher then personal best, update with new score
+                        if(clients[curr_client_idx]->high_score < (games[game_idx]->players)[i]->score){
+                            clients[curr_client_idx]->high_score = (games[game_idx]->players)[i]->score;
                         }
                     }
 
-                    if(clients[curr_client_idx]->high_score < (games[game_idx]->players)[i]->score){
-                        clients[curr_client_idx]->high_score = (games[game_idx]->players)[i]->score;
-                    }
+                    pthread_mutex_unlock(clientMutexes + curr_client_idx); // release mutex lock for client
 
-                    pthread_mutex_unlock(clientMutexes + curr_client_idx);
-
-                    client_msg(finished_msg, curr_client_idx);
+                    client_msg(finished_msg, curr_client_idx); // send end of game message to client, with scores
                 }
             }
         }
 
         free(finished_msg.msg); // free memory as necessary
 
-        pthread_mutex_lock(&leaderboardMutex);
+        pthread_mutex_lock(&leaderboardMutex); // get mutex lock for leaderboard struct
+        // in a thread--safe manner, update the leaderboards of the game session
         for(int i = 0; i < 3; i++){
-            int player_idx = (games[game_idx]->top_three)[i];
-            if(player_idx >= 0){
-                int player_score = (games[game_idx]->players)[player_idx]->score;
-                char player_nickname[UNAME_LEN]; strcpy(player_nickname, (games[game_idx]->players)[player_idx]->nickname);
+            int player_idx = (games[game_idx]->top_three)[i]; // maintain reference to index of i^th top three client
+            if(player_idx >= 0){ // if there is an i^th top three client i.e. not -1 (the default values in top_three)
+                int player_score = (games[game_idx]->players)[player_idx]->score; // keep reference of the score
+                char player_nickname[UNAME_LEN]; strcpy(player_nickname, (games[game_idx]->players)[player_idx]->nickname); // and of the nickname
 
+                // iterate through the leaderboard for the specified game mode, and check if better than the top three
+                // players in the leaderboard
                 for(int j = 0; j < 3; j++){
+                    // if the j^th leaderboard entry is not populated (i.e. is -1, the default value)
                     if((leaderboards[game_type].top_three)[j].score < 0){
+                        // then simply populate it with the score and nickname of the player, and break
                         (leaderboards[game_type].top_three)[j].score = player_score;
                         strcpy((leaderboards[game_type].top_three)[j].nickname, player_nickname);
 
                         break;
-                    }
+                    } // otherwise if the j^th score in the leaderboard is worse than that of the player, store the
+                      // players score in the j^th entry and shift the other scores (dropping one consequently)
                     else if((leaderboards[game_type].top_three)[j].score < player_score){
+                        // shift down the other scores in the leaderboard that score lower than the player's score
                         for(int k = j; k < 2; k++){
                             (leaderboards[game_type].top_three)[k+1].score = (leaderboards[game_type].top_three)[k].score;
                             strcpy((leaderboards[game_type].top_three)[k+1].nickname, (leaderboards[game_type].top_three)[k].nickname);
                         }
 
+                        // store nickname and score of new entry
                         (leaderboards[game_type].top_three)[j].score = player_score;
                         strcpy((leaderboards[game_type].top_three)[j].nickname, player_nickname);
                         break;
@@ -2024,32 +2109,41 @@ void gameFinishedQ(int game_idx, int remove_client_flag){
                 }
             }
         }
-        pthread_mutex_unlock(&leaderboardMutex);
+        pthread_mutex_unlock(&leaderboardMutex); // release mutex lock for leaderboard struct
     }
 
-    pthread_mutex_unlock(gameMutexes + game_idx);
+    pthread_mutex_unlock(gameMutexes + game_idx); // release mutex lock for game session struct
 
-    if(game_finished){
+    if(game_finished){ // if game finished, free memory as necessary
         free(games[game_idx]);
         games[game_idx] = NULL;
     }
 }
 
+// Handler function to P2P_READY messages, maintaining the conditional variable for the continuation of the
+// service_game_request thread to continue execution after all the anticipated P2P_READY messages have been received
 int handle_p2p_read_msg(char* chat_msg, int client_idx){
-    pthread_mutex_lock(clientMutexes + client_idx);
-    if(clients[client_idx] != NULL){
-        pthread_mutex_lock(gameMutexes + clients[client_idx]->game_idx);
-        for(int i = 0; i < N_SESSION_PLAYERS; i++){
-            if((games[clients[client_idx]->game_idx]->players)[i] != NULL &&
-                (games[clients[client_idx]->game_idx]->players)[i]->client_idx == client_idx){
+    pthread_mutex_lock(clientMutexes + client_idx); // obtain mutex lock for client
+    if(clients[client_idx] != NULL){ // if client is valid
+        // it is assumed that game_idx >= 0; indeed otherwise P2P_READY could not be sent
+        int game_idx = clients[client_idx]->game_idx; // keep reference to game session index
+        pthread_mutex_unlock(clientMutexes + client_idx); // release mutex lock for client
 
-		        (games[clients[client_idx]->game_idx]->n_players_p2p_ready)++;
-                pthread_cond_broadcast(&(games[clients[client_idx]->game_idx]->p2p_ready));
+        // obtain mutex lock for game session; this is released by prior call to pthread_cond_wait
+        pthread_mutex_lock(gameMutexes + game_idx);
+        for(int i = 0; i < N_SESSION_PLAYERS; i++){ // find matching player in the game session struct (to ensure that player is registered)
+            if((games[game_idx]->players)[i] != NULL && (games[game_idx]->players)[i]->client_idx == client_idx){
+                // if match found, increment conditional variable n_players_p2p_ready
+		        (games[game_idx]->n_players_p2p_ready)++;
+
+                // call pthread_cond_broadcast to return the game session mutex to the service_game_request thread
+                pthread_cond_broadcast(&(games[game_idx]->p2p_ready));
             }
         }
-        pthread_mutex_unlock(gameMutexes + clients[client_idx]->game_idx);
+        pthread_mutex_unlock(gameMutexes + game_idx); // release mutex lock for game session
+    }else{
+        pthread_mutex_unlock(clientMutexes + client_idx); // release mutex lock for client
     }
-    pthread_mutex_unlock(clientMutexes + client_idx);
 
     return 0;
 }
