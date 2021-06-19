@@ -1865,23 +1865,30 @@ int handle_chat_msg(char* chat_msg, int client_idx){
     return 0;
 }
 
+// Handler for the SCORE_UPDATE messages, which in a thread--safe manner changes the current score of a client in a
+// game_session struct.
 int handle_score_update_msg(char* chat_msg, int client_idx){
+    // will eventually hold the index in the game_session struct players list corresponding to the client with client_idx
     int player_idx = 0;
 
-    pthread_mutex_lock(clientMutexes + client_idx);
-    if(clients[client_idx] != NULL){
-        pthread_mutex_lock(gameMutexes + clients[client_idx]->game_idx);
-        for(; player_idx < N_SESSION_PLAYERS; player_idx++){
-            if((games[clients[client_idx]->game_idx]->players)[player_idx] != NULL
-                && (games[clients[client_idx]->game_idx]->players)[player_idx]->client_idx == client_idx
-                && (games[clients[client_idx]->game_idx]->players)[player_idx]->state == CONNECTED){
+    pthread_mutex_lock(clientMutexes + client_idx); // obtain mutex lock for the client
+    if(clients[client_idx] != NULL){ // if valid client instance
+        int game_idx = clients[client_idx]->game_idx; // keep reference of game_idx; we implicitly assume game_idx >= 0
 
-                (games[clients[client_idx]->game_idx]->players)[player_idx]->score = strtol(chat_msg, NULL, 10);
+        pthread_mutex_lock(gameMutexes + game_idx); // obtain mutex lock for the game session
+        for(; player_idx < N_SESSION_PLAYERS; player_idx++){ // iterate through all the players in the game session
+            // and determine if client_idx is registered and still listed as connected i.e. active in the game session
+            if((games[game_idx]->players)[player_idx] != NULL
+                && (games[game_idx]->players)[player_idx]->client_idx == client_idx
+                && (games[game_idx]->players)[player_idx]->state == CONNECTED){
+
+                // then convert the score from the data part of the message into an int, and update accordingly
+                (games[game_idx]->players)[player_idx]->score = strtol(chat_msg, NULL, 10);
             }
         }
-        pthread_mutex_unlock(gameMutexes + clients[client_idx]->game_idx);
+        pthread_mutex_unlock(gameMutexes + game_idx); // release mutex lock for the game session
     }
-    pthread_mutex_unlock(clientMutexes + client_idx);
+    pthread_mutex_unlock(clientMutexes + client_idx); // release mutex lock for the client
 
     return 0;
 }
@@ -1915,16 +1922,30 @@ int handle_finished_game_msg(char* chat_msg, int client_idx){
     return 0;
 }
 
+/* Utility function for updating the top three ranking players in a multiplayer game session, as necessary with the score
+ * of the specified player with player_idx in game session with game_idx. The ranking here is different from that of the
+ * leaderboards, namely that it is not purely based on the top three scoring players.
+ *
+ * The scoring method depends on the game mode:
+ * Rising Tide: The player with the highest score need not necessarily be the first player in the ranking (tho this is
+ *              usually the case). Rather, the last player standing takes the first place, etc...
+ * Fast Track:  In this game mode, the player which completes the required number of lines first (i.e. finished
+ *              successfully first) takes the first place, etc...
+ * Boomer:      This is the most 'vanilla' of the ranking methods; we simply rank by the top three scores.
+ */
 void gameTopThreeUpdate(int game_idx, int player_idx){
-    pthread_mutex_lock(gameMutexes + game_idx);
+    pthread_mutex_lock(gameMutexes + game_idx); // obtain mutex lock for game session struct
 
     if(games[game_idx]->game_type == RISING_TIDE){
         // shift down rankings; last player standing gets first place, etc
+        // i.e. ranking determined by order of FINISHED_GAME messages received, specifically the last three such messages
         (games[game_idx]->top_three)[2] = (games[game_idx]->top_three)[1];
         (games[game_idx]->top_three)[1] = (games[game_idx]->top_three)[0];
         (games[game_idx]->top_three)[0] = player_idx;
     }
     else if(games[game_idx]->game_type == FAST_TRACK){
+        // first three players to finish take the first three places; if already populated, then we carry out no updates
+        // i.e. ranking determined by order of FINISHED_GAME messages received, specifically the first three such messages
         for(int i = 0; i < 3; i++){
             if((games[game_idx]->top_three)[i] < 0){
                 (games[game_idx]->top_three)[i] = player_idx;
@@ -1932,18 +1953,25 @@ void gameTopThreeUpdate(int game_idx, int player_idx){
             }
         }
     }else if(games[game_idx]->game_type == BOOMER){
-        int player_score = (games[game_idx]->players)[player_idx]->score;
+        // iterate through the top three scores, and check if better than the top three current players
+
+        int player_score = (games[game_idx]->players)[player_idx]->score; // keep reference of player's score
 
         for(int i = 0; i < 3; i++){
+            // if the i^th entry is not populated (i.e. is -1, the default value)
             if((games[game_idx]->top_three)[i] < 0){
+                // then simply populate it with the index of the player, and break
                 (games[game_idx]->top_three)[i] = player_idx;
                 break;
-            }
+            } // otherwise if the i^th score is worse than that of the player, store the player's score in the i^th entry
+              // and shift the other scores (dropping one consequently)
             else if((games[game_idx]->players)[(games[game_idx]->top_three)[i]]->score < player_score){
+                // shift down the other scores in the ranking that score lower than the player's score
                 for(int j = i; j < 2; j++){
                     (games[game_idx]->top_three)[j+1] = (games[game_idx]->top_three)[j];
                 }
 
+                // store the index of the player, and break
                 (games[game_idx]->top_three)[i] = player_idx;
                 break;
             }
@@ -1952,7 +1980,7 @@ void gameTopThreeUpdate(int game_idx, int player_idx){
         (games[game_idx]->top_three)[0] = 0;
     }
 
-    pthread_mutex_unlock(gameMutexes + game_idx);
+    pthread_mutex_unlock(gameMutexes + game_idx); // release mutex lock for game session struct
 }
 
 // Utility function which checks if a game session is finished, informs the clients of the top ranking players, updates
