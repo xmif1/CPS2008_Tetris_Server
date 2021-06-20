@@ -1,4 +1,4 @@
-# Multiplayer Front-End Client Shared Library
+# Multiplayer Server
 
 ---
 CPS2008 *Operating Systems and Systems Programming 2*
